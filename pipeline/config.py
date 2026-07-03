@@ -18,7 +18,6 @@ class ConfigError(Exception):
 @dataclass
 class InputConfig:
     rgbd_dir: str
-    multi_views_dir: str
     first_frame: int = 0
     video_path: str | None = None
     frame_interval: int = 1
@@ -37,40 +36,6 @@ class Sam2Config:
 
 
 @dataclass
-class HunyuanConfig:
-    secret_id: str = ""
-    secret_key: str = ""
-    region: str = "ap-guangzhou"
-    model: str = "tencent/Hunyuan3D-2mv"
-    subfolder: str = "hunyuan3d-dit-v2-mv"
-    variant: str = "fp16"
-    face_count: int = 500000
-    enable_pbr: bool = False
-    views: dict[str, str] = field(default_factory=dict)
-    num_inference_steps: int = 50
-    octree_resolution: int = 380
-    num_chunks: int = 20000
-    seed: int = 12345
-    output_type: str = "trimesh"
-    remove_background: bool = True
-    conda_env: str = "hunyuan"
-    project_dir: str = "/home/try/code/Hunyuan3D-2"
-    python: str = ""
-
-
-@dataclass
-class RealSizeConfig:
-    longest_edge: float  # meters (OBJ units from Hunyuan)
-
-
-@dataclass
-class FoundationPoseConfig:
-    container: str = "foundationpose"
-    workdir: str = "/home/try/code/FoundationPose"
-    debug: int = 0
-
-
-@dataclass
 class DetectionDatasetConfig:
     class_name: str = "object"
     class_id: int = 0
@@ -85,9 +50,6 @@ class PipelineConfig:
     preset: str
     input: InputConfig
     sam2: Sam2Config
-    hunyuan: HunyuanConfig
-    real_size: RealSizeConfig
-    foundationpose: FoundationPoseConfig = field(default_factory=FoundationPoseConfig)
     detection_dataset: DetectionDatasetConfig = field(default_factory=DetectionDatasetConfig)
     output_dir: str = "output/"
     run_id: str | None = None
@@ -196,7 +158,7 @@ def _load_layered_config(path: Path, project_root: Path, raw: dict) -> dict:
     runtime_data = _load_named_yaml(project_root / "configs" / "runtime", runtime_name)
 
     merged: dict = {}
-    for algo_name in ("sam2", "hunyuan3d", "foundationpose", "yolo26"):
+    for algo_name in ("sam2",):
         merged = _deep_merge(
             merged,
             _load_named_yaml(project_root / "configs" / "algorithms", algo_name, required=False),
@@ -228,10 +190,8 @@ def _load_layered_config(path: Path, project_root: Path, raw: dict) -> dict:
 
 
 _REQUIRED_TOP = ["task", "preset", "input", "sam2"]
-_REQUIRED_INPUT = ["rgbd_dir", "multi_views_dir"]
+_REQUIRED_INPUT = ["rgbd_dir"]
 _REQUIRED_SAM2 = ["container", "points", "labels"]
-_REQUIRED_HUNYUAN = ["views"]
-_REQUIRED_REAL_SIZE = ["longest_edge"]
 
 
 def _validate_section(data, section_name, required_fields):
@@ -266,16 +226,6 @@ def load_config(config_path: str, project_root: str | Path | None = None) -> Pip
     _validate_section(resolved, "input", _REQUIRED_INPUT)
     _validate_section(resolved, "sam2", _REQUIRED_SAM2)
 
-    # Optional sections: only validate if present
-    hunyuan_data = resolved.get("hunyuan", {})
-    if hunyuan_data:
-        _validate_section(resolved, "hunyuan", _REQUIRED_HUNYUAN)
-
-    real_size_data = resolved.get("real_size", {})
-    if real_size_data:
-        _validate_section(resolved, "real_size", _REQUIRED_REAL_SIZE)
-
-    fp_data = resolved.get("foundationpose", {})
     det_data = resolved.get("detection_dataset", {})
 
     return PipelineConfig(
@@ -283,7 +233,6 @@ def load_config(config_path: str, project_root: str | Path | None = None) -> Pip
         preset=resolved["preset"],
         input=InputConfig(
             rgbd_dir=resolved["input"]["rgbd_dir"],
-            multi_views_dir=resolved["input"]["multi_views_dir"],
             first_frame=resolved["input"].get("first_frame", 0),
             video_path=resolved["input"].get("video_path"),
             frame_interval=resolved["input"].get("frame_interval", 1),
@@ -297,34 +246,6 @@ def load_config(config_path: str, project_root: str | Path | None = None) -> Pip
             video_cli=resolved["sam2"].get("video_cli", "tools/sam2/sam2_video_cli.py"),
             points=resolved["sam2"]["points"],
             labels=resolved["sam2"]["labels"],
-        ),
-        hunyuan=HunyuanConfig(
-            secret_id=hunyuan_data.get("secret_id", ""),
-            secret_key=hunyuan_data.get("secret_key", ""),
-            region=hunyuan_data.get("region", "ap-guangzhou"),
-            model=hunyuan_data.get("model", "tencent/Hunyuan3D-2mv"),
-            subfolder=hunyuan_data.get("subfolder", "hunyuan3d-dit-v2-mv"),
-            variant=hunyuan_data.get("variant", "fp16"),
-            face_count=hunyuan_data.get("face_count", 500000),
-            enable_pbr=hunyuan_data.get("enable_pbr", False),
-            views=hunyuan_data.get("views", {}),
-            num_inference_steps=hunyuan_data.get("num_inference_steps", 50),
-            octree_resolution=hunyuan_data.get("octree_resolution", 380),
-            num_chunks=hunyuan_data.get("num_chunks", 20000),
-            seed=hunyuan_data.get("seed", 12345),
-            output_type=hunyuan_data.get("output_type", "trimesh"),
-            remove_background=hunyuan_data.get("remove_background", True),
-            conda_env=hunyuan_data.get("conda_env", "hunyuan"),
-            project_dir=hunyuan_data.get("project_dir", "/home/try/code/Hunyuan3D-2"),
-            python=hunyuan_data.get("python", ""),
-        ),
-        real_size=RealSizeConfig(
-            longest_edge=real_size_data.get("longest_edge", 1.0),
-        ),
-        foundationpose=FoundationPoseConfig(
-            container=fp_data.get("container", "foundationpose"),
-            workdir=fp_data.get("workdir", "/home/try/code/FoundationPose"),
-            debug=fp_data.get("debug", 0),
         ),
         detection_dataset=DetectionDatasetConfig(
             class_name=det_data.get("class_name", "object"),

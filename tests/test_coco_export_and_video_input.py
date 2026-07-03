@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.config import PipelineConfig, InputConfig, Sam2Config, HunyuanConfig, RealSizeConfig
+from pipeline.config import PipelineConfig, InputConfig, Sam2Config
 from pipeline.stages.annotation_dataset import DetectionDatasetExportStage, _write_json
 from pipeline.stages.context import DataContext, RunContext, StageContext
 from pipeline.stages.sam2_video import ensure_rgb_frames
@@ -14,11 +14,8 @@ def _minimal_config(task_dir: Path) -> PipelineConfig:
         preset="annotation_dataset",
         input=InputConfig(
             rgbd_dir=str(task_dir),
-            multi_views_dir=str(task_dir / "views"),
         ),
         sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
-        hunyuan=HunyuanConfig(),
-        real_size=RealSizeConfig(longest_edge=1.0),
     )
 
 

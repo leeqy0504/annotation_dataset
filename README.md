@@ -55,7 +55,6 @@ runtime: server
 class_id: 0
 input:
   rgbd_dir: ./tasks/mouse_001/
-  multi_views_dir: ./tasks/mouse_001/views/
   first_frame: 0
   # 可选：如果未提供 rgb/*.png，则从视频抽帧生成 RGB 图像序列
   video_path: ./tasks/mouse_001/source.mp4
@@ -81,7 +80,6 @@ tasks/<task_name>/rgb/*.png
 ```yaml
 input:
   rgbd_dir: ./tasks/<task_name>/
-  multi_views_dir: ./tasks/<task_name>/views/
   video_path: ./tasks/<task_name>/source.mp4
   frame_interval: 1
 ```

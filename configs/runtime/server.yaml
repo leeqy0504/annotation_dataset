@@ -1,7 +1,5 @@
 runtime:
   name: server
   code_root: /home/try/code
-  foundationpose_dir: /home/try/code/FoundationPose
-  hunyuan3d_dir: /home/try/code/Hunyuan3D-2
   sam2_dir: /home/try/code/sam2
   pipeline_tool_dir: /home/try/code/annotation-dataset-pipeline

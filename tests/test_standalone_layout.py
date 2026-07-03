@@ -23,7 +23,6 @@ runtime: server
 class_id: 0
 input:
   rgbd_dir: ./tasks/mouse_001/
-  multi_views_dir: ./tasks/mouse_001/views/
   video_path: ./tasks/mouse_001/source.mp4
   frame_interval: 2
 sam2:
@@ -74,7 +73,6 @@ pipeline: annotation_dataset
 runtime: server
 input:
   rgbd_dir: ./tasks/__runner_test__/
-  multi_views_dir: ./tasks/__runner_test__/views/
 sam2:
   points: [[1, 2]]
   labels: [1]
@@ -122,3 +120,29 @@ Path({str(capture_path)!r}).write_text(json.dumps({{
         str(config_path),
         "--force",
     ]
+
+
+def test_setup_command_writes_annotation_dataset_task_without_multiviews(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    task_dir.mkdir(parents=True)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pipeline.cli",
+            "setup",
+            "--task",
+            "mouse_001",
+            "--project-root",
+            str(tmp_path),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+    task_yaml = (task_dir / "task.yaml").read_text(encoding="utf-8")
+    assert "pipeline: annotation_dataset" in task_yaml
+    assert "rgbd_dir: ./tasks/mouse_001/" in task_yaml
+    assert "multi_views_dir" not in task_yaml
+    assert "real_size" not in task_yaml

@@ -4,7 +4,6 @@ runtime: server
 class_id: 0
 input:
   rgbd_dir: ./tasks/example_task/
-  multi_views_dir: ./tasks/example_task/views/
   first_frame: 0
   # video_path: ./tasks/example_task/source.mp4
   # frame_interval: 1

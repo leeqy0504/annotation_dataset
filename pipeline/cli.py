@@ -55,7 +55,6 @@ def cmd_setup(args):
         existing = yaml.safe_load(existing_path.read_text(encoding="utf-8")) or {}
 
     sam2_data = info.get("sam2_points", {})
-    real_size = info.get("real_size", {})
     data = {
         **existing,
         "task_id": task_name,
@@ -65,20 +64,12 @@ def cmd_setup(args):
         "input": {
             **existing.get("input", {}),
             "rgbd_dir": f"./tasks/{task_name}/",
-            "multi_views_dir": f"./tasks/{task_name}/views/",
             "first_frame": int(existing.get("input", {}).get("first_frame", 0)),
         },
         "sam2": {
             **existing.get("sam2", {}),
             "points": sam2_data.get("points", existing.get("sam2", {}).get("points", [])),
             "labels": sam2_data.get("labels", existing.get("sam2", {}).get("labels", [])),
-        },
-        "real_size": {
-            **existing.get("real_size", {}),
-            "longest_edge": real_size.get(
-                "longest_edge",
-                existing.get("real_size", {}).get("longest_edge", 1.0),
-            ),
         },
         "output_dir": existing.get("output_dir", "output/"),
     }
@@ -90,7 +81,6 @@ def cmd_setup(args):
 
     print(f"Task config written: {existing_path}")
     print(f"  rgbd_dir   -> ./tasks/{task_name}/")
-    print(f"  views_dir  -> ./tasks/{task_name}/views/")
     print(f"  pipeline   -> {data['pipeline']}")
 
 
@@ -123,7 +113,7 @@ def main():
     # pipeline setup --task <name>
     setup_parser = subparsers.add_parser("setup", help="Create or update tasks/<task>/task.yaml")
     setup_parser.add_argument("--task", required=True, help="Task name")
-    setup_parser.add_argument("--pipeline", default="pose6d", help="Pipeline id")
+    setup_parser.add_argument("--pipeline", default="annotation_dataset", help="Pipeline id")
     setup_parser.add_argument("--runtime", default="server", help="Runtime id")
     setup_parser.add_argument("--class-id", type=int, default=0, help="Target class id")
     setup_parser.add_argument("--project-root", default=".", help="Project root")
