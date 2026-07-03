@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 
@@ -30,6 +31,26 @@ def _frame_paths(video_dir: Path) -> list[Path]:
     if not frames:
         raise FileNotFoundError(f"No image frames found in {video_dir}")
     return frames
+
+
+def _prepare_predictor_frames(video_dir: Path, output_dir: Path, cv2) -> tuple[Path, list[str]]:
+    frames = _frame_paths(video_dir)
+    output_names = [frame.name for frame in frames]
+    if frames[0].suffix.lower() in (".jpg", ".jpeg"):
+        return video_dir, output_names
+
+    jpg_dir = output_dir / "_sam2_jpg_frames"
+    if jpg_dir.exists():
+        shutil.rmtree(jpg_dir)
+    jpg_dir.mkdir(parents=True, exist_ok=True)
+    for frame in frames:
+        image = cv2.imread(str(frame))
+        if image is None:
+            raise FileNotFoundError(f"Frame read failed: {frame}")
+        jpg_path = jpg_dir / f"{frame.stem}.jpg"
+        if not cv2.imwrite(str(jpg_path), image):
+            raise RuntimeError(f"Frame conversion failed: {jpg_path}")
+    return jpg_dir, output_names
 
 
 def _should_use_prompt_mask(prompt_mask: str) -> bool:
@@ -87,6 +108,7 @@ def main():
         raise ValueError(f"first-frame {args.first_frame} outside frame count {len(frames)}")
 
     cv2, np, torch, build_sam2_video_predictor = _load_runtime_dependencies()
+    predictor_video_dir, output_names = _prepare_predictor_frames(video_dir, output_dir, cv2)
     points = _parse_points(args.points, np)
     labels = _parse_labels(args.labels, np)
     if len(points) != len(labels):
@@ -95,7 +117,7 @@ def main():
     predictor = build_sam2_video_predictor(args.config, args.checkpoint)
 
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        state = predictor.init_state(video_path=str(video_dir))
+        state = predictor.init_state(video_path=str(predictor_video_dir))
         prompt_mode = _add_initial_prompt(
             predictor=predictor,
             state=state,
@@ -115,7 +137,7 @@ def main():
             mask = (mask_logits[obj_index] > 0.0).cpu().numpy().astype(np.uint8) * 255
             if mask.ndim == 3:
                 mask = mask.squeeze()
-            out_path = output_dir / frames[frame_idx].name
+            out_path = output_dir / output_names[frame_idx]
             cv2.imwrite(str(out_path), mask)
             mask_count += 1
             foreground_pixels[str(frame_idx)] = int((mask > 0).sum())
