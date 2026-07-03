@@ -153,6 +153,51 @@ def test_detection_dataset_export_splits_by_contiguous_clips(tmp_path):
     assert (output_dir / "valid" / "000002.png").exists()
 
 
+def test_detection_dataset_export_adapts_clip_size_for_default_80_20_split(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    rgb_dir = task_dir / "rgb"
+    masks_dir = tmp_path / "sam2" / "masks"
+    mask_qa_dir = tmp_path / "mask_qa"
+    output_dir = tmp_path / "export"
+    frames = []
+    for index in range(80):
+        frame_name = f"{index:06d}.png"
+        frames.append({
+            "frame": frame_name,
+            "width": 4,
+            "height": 3,
+            "area": 4,
+            "bbox_xyxy": [1, 0, 3, 2],
+            "state": "accepted",
+            "flags": [],
+        })
+        _write_png(rgb_dir / frame_name)
+        _write_png(masks_dir / frame_name)
+    mask_qa_dir.mkdir(parents=True)
+    _write_json(mask_qa_dir / "qa_report.json", {
+        "task": "mouse_001",
+        "source_masks": str(masks_dir),
+        "frames": frames,
+    })
+
+    DetectionDatasetExportStage().run(
+        _minimal_config(task_dir),
+        output_dir,
+        context=_context_for(mask_qa_dir, output_dir),
+    )
+
+    train = json.loads((output_dir / "train" / "_annotations.coco.json").read_text(encoding="utf-8"))
+    valid = json.loads((output_dir / "valid" / "_annotations.coco.json").read_text(encoding="utf-8"))
+    assert len(train["images"]) == 64
+    assert len(valid["images"]) == 16
+    assert train["images"][0]["file_name"] == "000000.png"
+    assert train["images"][-1]["file_name"] == "000063.png"
+    assert valid["images"][0]["file_name"] == "000064.png"
+    assert valid["images"][-1]["file_name"] == "000079.png"
+    assert train["metadata"]["clip_size"] == 8
+    assert train["metadata"]["clip_size_mode"] == "adaptive"
+
+
 def test_video_input_extracts_rgb_frames_with_ffmpeg(tmp_path):
     task_dir = tmp_path / "tasks" / "mouse_001"
     video_path = task_dir / "source.mp4"

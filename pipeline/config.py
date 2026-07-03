@@ -42,7 +42,7 @@ class DetectionDatasetConfig:
     min_box_area: int = 16
     copy_images: bool = True
     preview: bool = False
-    clip_size: int = 500
+    clip_size: int | None = None
     train_ratio: float = 0.8
 
 
@@ -255,7 +255,7 @@ def load_config(config_path: str, project_root: str | Path | None = None) -> Pip
             min_box_area=det_data.get("min_box_area", 16),
             copy_images=det_data.get("copy_images", True),
             preview=det_data.get("preview", False),
-            clip_size=det_data.get("clip_size", 500),
+            clip_size=det_data.get("clip_size"),
             train_ratio=det_data.get("train_ratio", 0.8),
         ),
         output_dir=resolved.get("output_dir", "output/"),

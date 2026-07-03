@@ -265,8 +265,17 @@ def _mask_to_coco_rle(path: Path) -> dict:
     return {"size": [height, width], "counts": counts}
 
 
-def _split_by_clips(frames: list[dict], clip_size: int, train_ratio: float) -> dict[str, str]:
-    clip_size = max(1, int(clip_size or 500))
+def _effective_clip_size(frame_count: int, clip_size: int | None) -> tuple[int, str]:
+    if clip_size:
+        return max(1, int(clip_size)), "configured"
+    if frame_count <= 0:
+        return 1, "adaptive"
+    target_clip_count = min(10, frame_count)
+    return max(1, (frame_count + target_clip_count - 1) // target_clip_count), "adaptive"
+
+
+def _split_by_clips(frames: list[dict], clip_size: int | None, train_ratio: float) -> dict[str, str]:
+    clip_size, _ = _effective_clip_size(len(frames), clip_size)
     train_ratio = max(0.0, min(1.0, float(train_ratio)))
     clips = [frames[i:i + clip_size] for i in range(0, len(frames), clip_size)]
     if not clips:
@@ -491,7 +500,6 @@ class ReviewPackStage(BaseStage):
             config.detection_dataset.clip_size,
             config.detection_dataset.train_ratio,
         )
-
         items = []
         for row in report["frames"]:
             split_name = split_by_frame.get(row["frame"], "train")
@@ -680,6 +688,10 @@ class DetectionDatasetExportStage(BaseStage):
             config.detection_dataset.clip_size,
             config.detection_dataset.train_ratio,
         )
+        effective_clip_size, clip_size_mode = _effective_clip_size(
+            len(report["frames"]),
+            config.detection_dataset.clip_size,
+        )
         for row in report["frames"]:
             frame = row["frame"]
             split_name = split_by_frame.get(frame, "train")
@@ -786,7 +798,8 @@ class DetectionDatasetExportStage(BaseStage):
                     "contact_sheet": str(contact_sheet_path),
                     "skipped": split_skipped,
                     "split": split_name,
-                    "clip_size": max(1, int(config.detection_dataset.clip_size or 500)),
+                    "clip_size": effective_clip_size,
+                    "clip_size_mode": clip_size_mode,
                     "train_ratio": float(config.detection_dataset.train_ratio),
                 },
             })

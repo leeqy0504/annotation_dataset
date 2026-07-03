@@ -66,7 +66,6 @@ detection_dataset:
   class_name: object
   class_id: 0
   min_box_area: 16
-  clip_size: 500
   train_ratio: 0.8
 output_dir: output/
 ```
@@ -141,13 +140,21 @@ output/<task_name>/runs/<run_id>/stages/
 导出目录使用 UniTrain 推荐的 COCO 数据集结构。导出前会先按连续帧切 clip，再按 clip 划分：
 
 ```text
-clip_001: frame 000001-000500
-clip_002: frame 000501-001000
-clip_003: frame 001001-001500
+clip_001: 连续帧片段
+clip_002: 连续帧片段
+clip_003: 连续帧片段
 ...
 ```
 
-默认 `clip_size: 500`，`train_ratio: 0.8`，即 80% clips 进入 `train/`，20% clips 进入 `valid/`。同一个 clip 内的连续帧不会被拆到不同 split。
+默认不需要配置 `clip_size`：导出器会根据总帧数自适应切成最多 10 个连续 clip，再按 `train_ratio: 0.8` 划分，即 80% clips 进入 `train/`，20% clips 进入 `valid/`。同一个 clip 内的连续帧不会被拆到不同 split。
+
+如果你想固定每个 clip 的长度，也可以显式配置：
+
+```yaml
+detection_dataset:
+  clip_size: 500
+  train_ratio: 0.8
+```
 
 ```text
 output/<task_name>/detection_dataset_export/
