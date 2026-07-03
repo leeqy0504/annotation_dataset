@@ -2,4 +2,4 @@ runtime:
   name: server
   code_root: /home/try/code
   sam2_dir: /home/try/code/sam2
-  pipeline_tool_dir: /home/try/code/annotation-dataset-pipeline
+  pipeline_tool_dir: /home/try/code/annotation_dataset

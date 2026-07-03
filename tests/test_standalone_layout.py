@@ -47,7 +47,7 @@ output_dir: output/
     assert config.input.video_path == "./tasks/mouse_001/source.mp4"
     assert config.input.frame_interval == 2
     assert config.sam2.container == "sam2-backend-1"
-    assert config.sam2.project_mount == "/home/try/code/annotation-dataset-pipeline"
+    assert config.sam2.project_mount == "/home/try/code/annotation_dataset"
     assert config.detection_dataset.class_name == "object"
 
 

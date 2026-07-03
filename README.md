@@ -21,7 +21,7 @@
 ## 目录结构
 
 ```text
-annotation-dataset-pipeline/
+annotation_dataset/
   configs/
     pipelines/annotation_dataset.yaml
     algorithms/sam2.yaml
@@ -129,7 +129,7 @@ output/<task_name>/runs/<run_id>/stages/
 `configs/algorithms/sam2.yaml` 默认假设项目在 SAM2 容器中的挂载路径为：
 
 ```text
-/home/try/code/annotation-dataset-pipeline
+/home/try/code/annotation_dataset
 ```
 
 请确保 `sam2.container` 指定的 Docker 容器将项目目录挂载到上述相同路径；如果挂载路径不同，请修改配置中的 `sam2.project_mount`。
