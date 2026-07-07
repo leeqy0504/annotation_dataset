@@ -14,7 +14,11 @@ dependencies = [
 annotation-dataset = "pipeline.cli:main"
 annotation_dataset = "pipeline.cli:main"
 pipeline = "pipeline.cli:main"
+unitrain-train = "cli.train:main"
+unitrain-predict = "cli.predict:main"
+unitrain-export = "cli.export:main"
+unitrain-eval = "cli.eval:main"
 
 [tool.setuptools.packages.find]
-include = ["pipeline*"]
+include = ["pipeline*", "datasets*", "unitrain*", "cli*"]
 exclude = ["configs*", "registry*", "tasks*", "tests*", "tools*"]
