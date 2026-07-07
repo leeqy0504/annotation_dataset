@@ -39,3 +39,6 @@ manifest.json
 
 # Web UI runtime
 logs/
+
+# Local development worktrees
+.worktrees/
