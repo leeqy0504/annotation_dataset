@@ -65,6 +65,7 @@ def test_pipeline_runtime_stages_are_registered():
         "review_pack",
         "detection_dataset_export",
         "dataset_prepare",
+        "model_train",
     }
 
 

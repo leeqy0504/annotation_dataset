@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import yaml
+
 from pipeline.config import InputConfig, PipelineConfig, Sam2Config
 from pipeline.stages.context import DataContext, RunContext, StageContext
-from pipeline.stages.training import DatasetPrepareStage
+from pipeline.stages.training import DatasetPrepareStage, ModelTrainStage
 
 
 def _config(task_dir: Path) -> PipelineConfig:
@@ -52,3 +54,74 @@ def test_dataset_prepare_stage_writes_manifest_from_export_output(tmp_path):
     manifest = json.loads((output_dir / "dataset_manifest.json").read_text(encoding="utf-8"))
     assert manifest["dataset_id"] == "mouse_001:run42:detection_dataset_export"
     assert manifest["root"] == str(export_dir)
+
+
+class FakeRunner:
+    def train(self, config):
+        output_dir = Path(config["train"]["output_dir"])
+        train_output_dir = output_dir / "rfdetr_fake"
+        train_output_dir.mkdir(parents=True)
+        best_weights = train_output_dir / "checkpoint_best_ema.pth"
+        best_weights.write_bytes(b"weights")
+        return {
+            "output_dir": str(train_output_dir),
+            "best_weights": str(best_weights),
+        }
+
+
+def test_model_train_stage_writes_resolved_config_and_train_result(tmp_path, monkeypatch):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_split(dataset_root, "train", "000000.png")
+    _write_split(dataset_root, "valid", "000001.png")
+    DatasetPrepareStage().run(
+        _config(task_dir),
+        dataset_prepare_dir,
+        context=StageContext(
+            run=RunContext(run_id="run42", task_name="mouse_001"),
+            data=DataContext(
+                task_dir=task_dir,
+                run_dir=tmp_path / "run",
+                output_dir=dataset_prepare_dir,
+                inputs={"detection_dataset_export": dataset_root},
+            ),
+            stage_name="dataset_prepare",
+        ),
+    )
+    config = _config(task_dir)
+    config.training_name = "rfdetr_seg_nano"
+    config.training = {
+        "framework": "rfdetr",
+        "model": "seg-nano",
+        "task": "segment",
+        "data": {"format": "coco"},
+        "train": {"epochs": 1, "batch": 1, "device": "cpu", "output_dir": str(tmp_path / "train_outputs")},
+        "export": {"format": "onnx"},
+    }
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001", metadata={}),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+    monkeypatch.setattr("pipeline.stages.training.get_runner", lambda framework: FakeRunner())
+
+    result = ModelTrainStage().run(config, output_dir, context=context)
+
+    assert result == output_dir
+    resolved = yaml.safe_load((output_dir / "resolved_unitrain_config.yaml").read_text(encoding="utf-8"))
+    assert resolved["data"]["path"] == str(dataset_root)
+    assert resolved["data"]["format"] == "coco"
+    assert resolved["train"]["output_dir"] == str(tmp_path / "train_outputs")
+    train_result = json.loads((output_dir / "train_result.json").read_text(encoding="utf-8"))
+    assert train_result["framework"] == "rfdetr"
+    assert train_result["model"] == "seg-nano"
+    assert train_result["task"] == "segment"
+    assert train_result["best_weights"].endswith("checkpoint_best_ema.pth")
+    assert context.metadata["model_train"]["best_weights"] == train_result["best_weights"]

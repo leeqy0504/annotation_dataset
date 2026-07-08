@@ -23,7 +23,7 @@ def list_stages():
     return list(_registry.keys())
 
 
-# Import only annotation-dataset stages to trigger @register_stage decorators.
+# Import pipeline stages to trigger @register_stage decorators.
 from pipeline.stages import masks  # noqa: E402,F401
 from pipeline.stages import sam2_video  # noqa: E402,F401
 from pipeline.stages import annotation_dataset  # noqa: E402,F401
