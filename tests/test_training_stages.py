@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from pipeline.config import InputConfig, PipelineConfig, Sam2Config
+from pipeline.stages.base import StageError
 from pipeline.stages.context import DataContext, RunContext, StageContext
 from pipeline.stages.training import DatasetPrepareStage, ModelTrainStage
 
@@ -26,6 +28,21 @@ def _write_split(root: Path, split: str, image_name: str) -> None:
             "images": [{"id": 1, "file_name": image_name, "width": 4, "height": 3}],
             "annotations": [{"id": 1, "image_id": 1, "category_id": 0, "bbox": [0, 0, 2, 2], "area": 4, "iscrowd": 0}],
             "categories": [{"id": 0, "name": "object", "supercategory": "object"}],
+        }),
+        encoding="utf-8",
+    )
+
+
+def _write_dataset_manifest(dataset_prepare_dir: Path, dataset_root: Path) -> None:
+    dataset_prepare_dir.mkdir(parents=True)
+    (dataset_prepare_dir / "dataset_manifest.json").write_text(
+        json.dumps({
+            "dataset_id": "mouse_001:run42:detection_dataset_export",
+            "task": "mouse_001",
+            "run_id": "run42",
+            "source_stage": "detection_dataset_export",
+            "root": str(dataset_root),
+            "format": "coco",
         }),
         encoding="utf-8",
     )
@@ -125,3 +142,64 @@ def test_model_train_stage_writes_resolved_config_and_train_result(tmp_path, mon
     assert train_result["task"] == "segment"
     assert train_result["best_weights"].endswith("checkpoint_best_ema.pth")
     assert context.metadata["model_train"]["best_weights"] == train_result["best_weights"]
+
+
+def test_model_train_stage_wraps_get_runner_failures(tmp_path, monkeypatch):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_dataset_manifest(dataset_prepare_dir, dataset_root)
+    config = _config(task_dir)
+    config.training = {
+        "framework": "nope",
+        "model": "seg-nano",
+        "task": "segment",
+        "data": {"format": "coco"},
+    }
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001"),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+
+    def fail_get_runner(framework):
+        raise ValueError(f"unsupported framework: {framework}")
+
+    monkeypatch.setattr("pipeline.stages.training.get_runner", fail_get_runner)
+
+    with pytest.raises(StageError, match="Training failed: unsupported framework: nope"):
+        ModelTrainStage().run(config, output_dir, context=context)
+
+
+def test_model_train_stage_rejects_non_mapping_data_config(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_dataset_manifest(dataset_prepare_dir, dataset_root)
+    config = _config(task_dir)
+    config.training = {
+        "framework": "rfdetr",
+        "model": "seg-nano",
+        "task": "segment",
+        "data": "coco",
+    }
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001"),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+
+    with pytest.raises(StageError, match="Training config field 'data' must be a mapping"):
+        ModelTrainStage().run(config, output_dir, context=context)

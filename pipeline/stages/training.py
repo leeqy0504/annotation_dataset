@@ -40,6 +40,8 @@ def _resolved_training_config(config: PipelineConfig, dataset_manifest: dict) ->
         raise StageError("Training config is required for model_train")
     resolved = copy.deepcopy(config.training)
     data = resolved.setdefault("data", {})
+    if not isinstance(data, dict):
+        raise StageError("Training config field 'data' must be a mapping")
     data["path"] = dataset_manifest["root"]
     data.setdefault("format", dataset_manifest.get("format", "coco").replace("roboflow_", ""))
     return resolved
@@ -101,8 +103,8 @@ class ModelTrainStage(BaseStage):
         framework = resolved_config.get("framework")
         if not framework:
             raise StageError("Training config missing required field: framework")
-        runner = get_runner(str(framework))
         try:
+            runner = get_runner(str(framework))
             train_info = runner.train(resolved_config)
         except Exception as exc:
             raise StageError(f"Training failed: {exc}") from exc
