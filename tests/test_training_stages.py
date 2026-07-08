@@ -9,6 +9,8 @@ from pipeline.stages.base import StageError
 from pipeline.stages.context import DataContext, RunContext, StageContext
 from pipeline.stages.training import DatasetPrepareStage, ModelTrainStage
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _config(task_dir: Path) -> PipelineConfig:
     return PipelineConfig(
@@ -73,8 +75,38 @@ def test_dataset_prepare_stage_writes_manifest_from_export_output(tmp_path):
     assert manifest["root"] == str(export_dir)
 
 
+def test_dataset_prepare_stage_requires_copied_images_for_training_handoff(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    export_dir = tmp_path / "run" / "detection_dataset_export"
+    output_dir = tmp_path / "run" / "dataset_prepare"
+    _write_split(export_dir, "train", "000000.png")
+    _write_split(export_dir, "valid", "000001.png")
+    config = _config(task_dir)
+    config.detection_dataset.copy_images = False
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001"),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"detection_dataset_export": export_dir},
+        ),
+        stage_name="dataset_prepare",
+    )
+
+    with pytest.raises(
+        StageError,
+        match="dataset_prepare requires detection_dataset.copy_images=true for training handoff",
+    ):
+        DatasetPrepareStage().run(config, output_dir, context=context)
+
+
 class FakeRunner:
+    def __init__(self):
+        self.config = None
+
     def train(self, config):
+        self.config = config
         output_dir = Path(config["train"]["output_dir"])
         train_output_dir = output_dir / "rfdetr_fake"
         train_output_dir.mkdir(parents=True)
@@ -144,7 +176,39 @@ def test_model_train_stage_writes_resolved_config_and_train_result(tmp_path, mon
     assert context.metadata["model_train"]["best_weights"] == train_result["best_weights"]
 
 
-def test_model_train_stage_wraps_get_runner_failures(tmp_path, monkeypatch):
+def test_model_train_stage_scopes_default_relative_training_output_dir(tmp_path, monkeypatch):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_dataset_manifest(dataset_prepare_dir, dataset_root)
+    config = _config(task_dir)
+    config.training_name = "rfdetr_seg_nano"
+    config.training = yaml.safe_load((ROOT / "configs" / "training" / "rfdetr_seg_nano.yaml").read_text(encoding="utf-8"))
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001"),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+    runner = FakeRunner()
+    monkeypatch.setattr("pipeline.stages.training.get_runner", lambda framework: runner)
+
+    ModelTrainStage().run(config, output_dir, context=context)
+
+    resolved = yaml.safe_load((output_dir / "resolved_unitrain_config.yaml").read_text(encoding="utf-8"))
+    scoped_output_dir = output_dir / "outputs"
+    assert resolved["train"]["output_dir"] == str(scoped_output_dir)
+    assert runner.config["train"]["output_dir"] == str(scoped_output_dir)
+    assert Path(resolved["train"]["output_dir"]).is_absolute()
+    assert resolved["train"]["output_dir"] != "outputs"
+
+
+def test_model_train_stage_rejects_unsupported_framework_before_get_runner(tmp_path, monkeypatch):
     task_dir = tmp_path / "tasks" / "mouse_001"
     dataset_root = tmp_path / "run" / "detection_dataset_export"
     dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
@@ -152,7 +216,7 @@ def test_model_train_stage_wraps_get_runner_failures(tmp_path, monkeypatch):
     _write_dataset_manifest(dataset_prepare_dir, dataset_root)
     config = _config(task_dir)
     config.training = {
-        "framework": "nope",
+        "framework": "ultralytics",
         "model": "seg-nano",
         "task": "segment",
         "data": {"format": "coco"},
@@ -169,11 +233,14 @@ def test_model_train_stage_wraps_get_runner_failures(tmp_path, monkeypatch):
     )
 
     def fail_get_runner(framework):
-        raise ValueError(f"unsupported framework: {framework}")
+        raise AssertionError(f"get_runner should not be called for {framework}")
 
     monkeypatch.setattr("pipeline.stages.training.get_runner", fail_get_runner)
 
-    with pytest.raises(StageError, match="Training failed: unsupported framework: nope"):
+    with pytest.raises(
+        StageError,
+        match="model_train currently supports framework 'rfdetr' only; 'ultralytics' requires a dataset conversion bridge",
+    ):
         ModelTrainStage().run(config, output_dir, context=context)
 
 
@@ -202,4 +269,33 @@ def test_model_train_stage_rejects_non_mapping_data_config(tmp_path):
     )
 
     with pytest.raises(StageError, match="Training config field 'data' must be a mapping"):
+        ModelTrainStage().run(config, output_dir, context=context)
+
+
+def test_model_train_stage_rejects_non_mapping_train_config(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_dataset_manifest(dataset_prepare_dir, dataset_root)
+    config = _config(task_dir)
+    config.training = {
+        "framework": "rfdetr",
+        "model": "seg-nano",
+        "task": "segment",
+        "data": {"format": "coco"},
+        "train": "outputs",
+    }
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001"),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+
+    with pytest.raises(StageError, match="Training config field 'train' must be a mapping"):
         ModelTrainStage().run(config, output_dir, context=context)

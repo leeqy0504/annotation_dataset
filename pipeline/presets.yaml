@@ -5,3 +5,12 @@ annotation_dataset:
     - mask_qa
     - review_pack
     - detection_dataset_export
+annotation_to_unitrain:
+  stages:
+    - prompt_mask
+    - sam2_video_propagation
+    - mask_qa
+    - review_pack
+    - detection_dataset_export
+    - dataset_prepare
+    - model_train

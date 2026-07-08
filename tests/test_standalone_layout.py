@@ -71,6 +71,23 @@ def test_pipeline_runtime_stages_are_registered():
     }
 
 
+def test_legacy_preset_resolver_includes_annotation_to_unitrain():
+    from pipeline.pipeline import PipelineOrchestrator
+
+    stages = PipelineOrchestrator().resolve_preset("annotation_to_unitrain")
+
+    assert stages == [
+        "prompt_mask",
+        "sam2_video_propagation",
+        "mask_qa",
+        "review_pack",
+        "detection_dataset_export",
+        "dataset_prepare",
+        "model_train",
+    ]
+    assert stages[-2:] == ["dataset_prepare", "model_train"]
+
+
 def test_runner_invokes_pipeline_from_project_root(tmp_path):
     task_dir = ROOT / "tasks" / "__runner_test__"
     config_path = task_dir / "task.yaml"

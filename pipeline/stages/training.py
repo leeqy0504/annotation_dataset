@@ -35,7 +35,7 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def _resolved_training_config(config: PipelineConfig, dataset_manifest: dict) -> dict:
+def _resolved_training_config(config: PipelineConfig, dataset_manifest: dict, output_dir: Path) -> dict:
     if not config.training:
         raise StageError("Training config is required for model_train")
     resolved = copy.deepcopy(config.training)
@@ -44,6 +44,16 @@ def _resolved_training_config(config: PipelineConfig, dataset_manifest: dict) ->
         raise StageError("Training config field 'data' must be a mapping")
     data["path"] = dataset_manifest["root"]
     data.setdefault("format", dataset_manifest.get("format", "coco").replace("roboflow_", ""))
+    train = resolved.setdefault("train", {})
+    if not isinstance(train, dict):
+        raise StageError("Training config field 'train' must be a mapping")
+    train_output_dir = train.get("output_dir")
+    if not train_output_dir:
+        train["output_dir"] = str(output_dir / "unitrain")
+    else:
+        train_output_path = Path(str(train_output_dir))
+        if not train_output_path.is_absolute():
+            train["output_dir"] = str(output_dir / train_output_path)
     return resolved
 
 
@@ -59,6 +69,8 @@ class DatasetPrepareStage(BaseStage):
         output_dir: Path,
         context: StageContext | None = None,
     ) -> Path:
+        if not config.detection_dataset.copy_images:
+            raise StageError("dataset_prepare requires detection_dataset.copy_images=true for training handoff")
         dataset_root = _stage_input(config, context, "detection_dataset_export")
         run_id = context.run.run_id if context and context.run else config.run_id
         try:
@@ -92,7 +104,7 @@ class ModelTrainStage(BaseStage):
             raise StageError(f"Dataset manifest not found: {dataset_manifest_path}")
 
         dataset_manifest = _read_json(dataset_manifest_path)
-        resolved_config = _resolved_training_config(config, dataset_manifest)
+        resolved_config = _resolved_training_config(config, dataset_manifest, output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         resolved_config_path = output_dir / "resolved_unitrain_config.yaml"
         resolved_config_path.write_text(
@@ -103,8 +115,14 @@ class ModelTrainStage(BaseStage):
         framework = resolved_config.get("framework")
         if not framework:
             raise StageError("Training config missing required field: framework")
+        framework_name = str(framework).lower()
+        if framework_name != "rfdetr":
+            raise StageError(
+                f"model_train currently supports framework 'rfdetr' only; "
+                f"'{framework}' requires a dataset conversion bridge"
+            )
         try:
-            runner = get_runner(str(framework))
+            runner = get_runner(framework_name)
             train_info = runner.train(resolved_config)
         except Exception as exc:
             raise StageError(f"Training failed: {exc}") from exc
