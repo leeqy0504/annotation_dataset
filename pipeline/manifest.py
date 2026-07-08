@@ -1,5 +1,6 @@
 """Manifest: track pipeline stage status and outputs."""
 
+import copy
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,7 +43,7 @@ class Manifest:
             "duration_s": duration_s,
         }
         if metadata:
-            self.stages[name]["metadata"] = metadata
+            self.stages[name]["metadata"] = copy.deepcopy(metadata)
 
     def mark_stage_failed(self, name: str):
         self.stages[name] = {

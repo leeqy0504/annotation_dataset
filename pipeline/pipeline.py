@@ -118,8 +118,6 @@ class PipelineOrchestrator:
         run_dir = Path(self._run_dir(config))
         task_dir = Path(config.input.rgbd_dir)
         metadata = manifest.metadata
-        if base_context and base_context.metadata:
-            metadata.update(base_context.metadata)
         run_context = RunContext(
             run_id=config.run_id,
             task_name=config.task,
