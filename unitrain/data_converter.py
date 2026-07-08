@@ -19,42 +19,42 @@ from pycocotools import mask as mask_utils
 
 def _preprocess_rle_annotations(annotations_path: str, convert_rle: bool = True) -> str:
     """预处理 COCO 标注文件。
-    
+
     - 如果 convert_rle=True：将 RLE 格式转换为 polygon 格式（用于不支持 RLE 的框架如 YOLO）
     - 如果 convert_rle=False：保留 RLE 格式（用于支持 RLE 的框架如 RF-DETR）
     - 始终将嵌套格式 [[x1,y1,...]] 展平为 [x1,y1,...] 以兼容 supervision 库
-    
+
     Args:
         annotations_path: COCO JSON 标注文件路径
         convert_rle: 是否将 RLE 转换为 polygon，默认 True
-        
+
     Returns:
         处理后的标注文件路径（如果有修改则返回临时文件路径，否则返回原路径）
     """
     with open(annotations_path, 'r') as f:
         coco_data = json.load(f)
-    
+
     has_changes = False
     rle_count = 0
     flatten_count = 0
-    
+
     # 检查并转换 RLE 格式的 segmentation
     for ann in coco_data['annotations']:
         if 'segmentation' not in ann:
             continue
-            
+
         seg = ann['segmentation']
-        
+
         # 检测 RLE 格式: {"counts": ..., "size": ...}
         if isinstance(seg, dict) and 'counts' in seg:
             if not convert_rle:
                 # 保留 RLE 格式，跳过转换
                 rle_count += 1
                 continue
-            
+
             has_changes = True
             rle_count += 1
-            
+
             try:
                 # 解码 RLE 为二值 mask
                 if isinstance(seg['counts'], list):
@@ -63,20 +63,20 @@ def _preprocess_rle_annotations(annotations_path: str, convert_rle: bool = True)
                 else:
                     # 压缩的 RLE
                     rle = seg
-                
+
                 mask = mask_utils.decode(rle)
-                
+
                 # 使用 OpenCV 提取轮廓
                 contours, _ = cv2.findContours(
                     mask.astype(np.uint8),
                     cv2.RETR_EXTERNAL,
                     cv2.CHAIN_APPROX_SIMPLE
                 )
-                
+
                 if contours:
                     # 只保留最大的轮廓（按面积）避免多轮廓导致的 inhomogeneous shape 错误
                     largest_contour = max(contours, key=cv2.contourArea)
-                    
+
                     if len(largest_contour) >= 3:  # 至少需要 3 个点
                         polygon = largest_contour.flatten().tolist()
                         # 确保所有坐标都是 float（与原始 COCO polygon 格式一致）
@@ -86,20 +86,20 @@ def _preprocess_rle_annotations(annotations_path: str, convert_rle: bool = True)
                     else:
                         # 回退到 bbox
                         x, y, w, h = ann['bbox']
-                        ann['segmentation'] = [float(x), float(y), float(x+w), float(y), 
+                        ann['segmentation'] = [float(x), float(y), float(x+w), float(y),
                                               float(x+w), float(y+h), float(x), float(y+h)]
                 else:
                     # 没有找到轮廓，使用 bbox
                     x, y, w, h = ann['bbox']
-                    ann['segmentation'] = [float(x), float(y), float(x+w), float(y), 
+                    ann['segmentation'] = [float(x), float(y), float(x+w), float(y),
                                           float(x+w), float(y+h), float(x), float(y+h)]
-                    
+
             except Exception as e:
                 print(f"  [WARNING] 转换 RLE 失败 (annotation {ann.get('id', 'unknown')}): {e}, 使用 bbox")
                 x, y, w, h = ann['bbox']
-                ann['segmentation'] = [float(x), float(y), float(x+w), float(y), 
+                ann['segmentation'] = [float(x), float(y), float(x+w), float(y),
                                       float(x+w), float(y+h), float(x), float(y+h)]
-        
+
         # 展平嵌套的 polygon 格式: [[x1,y1,...]] -> [x1,y1,...]
         # supervision 0.27.x 期望扁平列表而不是嵌套列表
         elif isinstance(seg, list) and seg and isinstance(seg[0], list):
@@ -115,7 +115,7 @@ def _preprocess_rle_annotations(annotations_path: str, convert_rle: bool = True)
                 ann['segmentation'] = seg[0]
                 has_changes = True
                 flatten_count += 1
-    
+
     if rle_count > 0:
         if convert_rle:
             print(f"  已转换 {rle_count} 个 RLE 标注为 polygon 格式")
@@ -123,13 +123,13 @@ def _preprocess_rle_annotations(annotations_path: str, convert_rle: bool = True)
             print(f"  保留 {rle_count} 个 RLE 标注（框架原生支持）")
     if flatten_count > 0:
         print(f"  已展平 {flatten_count} 个嵌套 polygon 标注")
-    
+
     if has_changes:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='_temp_annotations.json', 
+        with tempfile.NamedTemporaryFile(mode='w', suffix='_temp_annotations.json',
                                         delete=False, dir=Path(annotations_path).parent) as f:
             json.dump(coco_data, f)
             return f.name
-    
+
     return annotations_path
 
 
@@ -142,13 +142,13 @@ def _convert_split(
     convert_rle: bool = True,
 ) -> sv.DetectionDataset:
     """Load one COCO split and export it as YOLO.
-    
+
     Args:
         convert_rle: 是否将 RLE 转换为 polygon。YOLO 需要 True，RF-DETR 可以 False。
     """
     # 预处理标注格式
     processed_ann_path = _preprocess_rle_annotations(annotations_path, convert_rle=convert_rle)
-    
+
     try:
         ds = sv.DetectionDataset.from_coco(
             images_directory_path=images_dir,
@@ -164,7 +164,7 @@ def _convert_split(
         # 清理临时文件
         if processed_ann_path != annotations_path:
             Path(processed_ann_path).unlink(missing_ok=True)
-    
+
     return ds
 
 
@@ -221,14 +221,14 @@ def convert_roboflow_coco_dataset(
         import yaml
         with open(data_yaml, 'r') as f:
             yaml_data = yaml.safe_load(f)
-        
+
         # 添加路径信息（使用绝对路径）
         yaml_data['path'] = str(yolo_root.absolute())
         yaml_data['train'] = 'images/train'
         yaml_data['val'] = 'images/val'
         if (yolo_root / 'images' / 'test').exists():
             yaml_data['test'] = 'images/test'
-        
+
         with open(data_yaml, 'w') as f:
             yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
 

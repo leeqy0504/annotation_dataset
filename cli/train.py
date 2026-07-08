@@ -11,11 +11,11 @@ from unitrain import get_runner, load_config
 
 def check_gpu_memory(devices: str, threshold: float = 0.2) -> dict:
     """检查指定显卡的内存占用情况。
-    
+
     Args:
         devices: 设备字符串，如 "0", "2,3", "cuda:0"
         threshold: 内存占用阈值（0-1），超过则警告
-        
+
     Returns:
         dict: {gpu_id: {"used": MB, "total": MB, "percent": float, "over_threshold": bool}}
     """
@@ -23,20 +23,20 @@ def check_gpu_memory(devices: str, threshold: float = 0.2) -> dict:
     device_str = devices.replace("cuda:", "").replace(" ", "")
     if not device_str or device_str == "cpu":
         return {}
-    
+
     gpu_ids = [int(x) for x in device_str.split(",") if x.isdigit()]
     if not gpu_ids:
         return {}
-    
+
     result = {}
     try:
         # 查询显卡内存
         output = subprocess.check_output([
-            "nvidia-smi", 
+            "nvidia-smi",
             "--query-gpu=index,memory.used,memory.total",
             "--format=csv,noheader,nounits"
         ], text=True)
-        
+
         for line in output.strip().split("\n"):
             parts = [x.strip() for x in line.split(",")]
             if len(parts) >= 3:
@@ -53,33 +53,33 @@ def check_gpu_memory(devices: str, threshold: float = 0.2) -> dict:
                     }
     except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
         pass
-    
+
     return result
 
 
 def prompt_clear_gpu_cache(gpu_status: dict) -> bool:
     """提示用户是否清理显卡缓存。
-    
+
     Returns:
         bool: 是否继续训练
     """
     over_threshold = {k: v for k, v in gpu_status.items() if v["over_threshold"]}
     if not over_threshold:
         return True
-    
+
     print("\n" + "=" * 60)
     print("⚠️  检测到以下显卡内存占用超过 20%:")
     print("-" * 60)
     for gpu_id, info in over_threshold.items():
         print(f"  GPU {gpu_id}: {info['used']:.0f} / {info['total']:.0f} MiB ({info['percent']*100:.1f}%)")
     print("-" * 60)
-    
+
     try:
         response = input("是否清理显卡缓存后继续? [Y/n/q] (Y=清理, n=跳过, q=退出): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print("\n已取消")
         return False
-    
+
     if response == 'q':
         print("已退出")
         return False
@@ -96,17 +96,17 @@ def prompt_clear_gpu_cache(gpu_status: dict) -> bool:
                 with torch.cuda.device(gpu_id):
                     torch.cuda.empty_cache()
             print("✅ PyTorch 缓存已清理")
-            
+
             # 查找并终止占用显存的进程（仅当前用户的）
             import os
             current_user = os.getenv("USER", "")
             output = subprocess.check_output([
-                "nvidia-smi", 
+                "nvidia-smi",
                 "--query-compute-apps=pid,used_memory",
                 "--format=csv,noheader,nounits",
                 "-i", ",".join(str(g) for g in over_threshold.keys())
             ], text=True)
-            
+
             orphan_pids = []
             for line in output.strip().split("\n"):
                 if line.strip():
@@ -115,7 +115,7 @@ def prompt_clear_gpu_cache(gpu_status: dict) -> bool:
                         pid = parts[0].strip()
                         if pid.isdigit():
                             orphan_pids.append(int(pid))
-            
+
             if orphan_pids:
                 print(f"  发现 {len(orphan_pids)} 个占用显存的进程: {orphan_pids}")
                 kill_response = input("  是否终止这些进程? [y/N]: ").strip().lower()
@@ -132,7 +132,7 @@ def prompt_clear_gpu_cache(gpu_status: dict) -> bool:
             print("  PyTorch 未安装，跳过缓存清理")
         except Exception as e:
             print(f"  清理时出错: {e}")
-        
+
         return True
 
 
@@ -145,7 +145,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
-    
+
     # 检查显卡内存占用
     if not args.skip_gpu_check:
         devices = getattr(config, "device", "") or ""
@@ -153,7 +153,7 @@ def main():
         if gpu_status:
             if not prompt_clear_gpu_cache(gpu_status):
                 sys.exit(1)
-    
+
     print(f">>> Training with {config.framework} / {config.model}")
 
     # Auto convert data for ultralytics if needed
@@ -264,7 +264,7 @@ def _auto_eval(runner, cfg_dict: dict, config, train_info: dict | None) -> None:
     except Exception as e:
         print(f">>> Auto-evaluation failed: {e}")
         print(">>> Training was successful. You can run eval manually with:")
-        print(f"    ./run.sh eval --config <config.yaml> --weights {best_weights}")
+        print(f"    ./run_unitrain.sh eval --config <config.yaml> --weights {best_weights}")
 
 
 if __name__ == "__main__":

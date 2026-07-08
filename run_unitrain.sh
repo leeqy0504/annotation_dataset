@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # 使用方法:
-#   ./run.sh <command> [options]
+#   ./run_unitrain.sh <command> [options]
 #
 # 命令:
 #   train    --config <yaml>              训练模型
@@ -15,11 +15,11 @@
 #   shell    --framework <name>           进入框架的虚拟环境
 #
 # 示例:
-#   ./run.sh setup                        # 初始化所有环境
-#   ./run.sh setup --framework rfdetr     # 仅初始化 RF-DETR 环境
-#   ./run.sh train --config configs/rfdetr.yaml
-#   ./run.sh predict --config configs/rfdetr.yaml --source image.jpg
-#   ./run.sh shell --framework yolo       # 进入 YOLO 虚拟环境
+#   ./run_unitrain.sh setup                        # 初始化所有环境
+#   ./run_unitrain.sh setup --framework rfdetr     # 仅初始化 RF-DETR 环境
+#   ./run_unitrain.sh train --config configs/rfdetr.yaml
+#   ./run_unitrain.sh predict --config configs/rfdetr.yaml --source image.jpg
+#   ./run_unitrain.sh shell --framework yolo       # 进入 YOLO 虚拟环境
 #
 # ============================================================================
 
@@ -107,12 +107,12 @@ get_framework_from_config() {
 check_submodule() {
     local framework="$1"
     local submodule_path="${FRAMEWORK_SUBMODULE[$framework]}"
-    
+
     if [ -z "$submodule_path" ]; then
         log_error "未知框架: $framework"
         exit 1
     fi
-    
+
     # 检查子模块目录是否存在且非空
     if [ -d "$submodule_path" ] && [ "$(ls -A "$submodule_path" 2>/dev/null)" ]; then
         return 0  # 存在
@@ -126,16 +126,16 @@ init_submodule() {
     local framework="$1"
     local submodule_path="${FRAMEWORK_SUBMODULE[$framework]}"
     local repo_url="${FRAMEWORK_REPO[$framework]}"
-    
+
     log_info "初始化子仓库: $submodule_path"
-    
+
     # 确保 git 仓库已初始化
     if [ ! -d ".git" ]; then
         git init
     fi
-    
+
     mkdir -p "$(dirname "$submodule_path")"
-    
+
     # 检查子模块是否已在 git index 中注册
     if git ls-files --stage "$submodule_path" | grep -q "160000"; then
         log_info "子模块已注册，执行更新..."
@@ -161,7 +161,7 @@ init_submodule() {
             git clone --depth 1 "$repo_url" "$submodule_path"
         }
     fi
-    
+
     log_success "子仓库就绪: $submodule_path"
 }
 
@@ -169,7 +169,7 @@ init_submodule() {
 check_venv() {
     local framework="$1"
     local venv_path="${FRAMEWORK_VENV[$framework]}"
-    
+
     if [ -d "$venv_path" ] && [ -f "$venv_path/bin/python" ]; then
         return 0  # 存在
     else
@@ -183,39 +183,39 @@ create_venv() {
     local venv_path="${FRAMEWORK_VENV[$framework]}"
     local deps_file="${FRAMEWORK_DEPS[$framework]}"
     local submodule_path="${FRAMEWORK_SUBMODULE[$framework]}"
-    
+
     log_info "创建虚拟环境: $venv_path"
-    
+
     check_uv
-    
+
     # 创建虚拟环境
     uv venv "$venv_path" --python 3.11
-    
+
     # 激活并安装依赖
     source "$venv_path/bin/activate"
-    
+
     if [ -f "$deps_file" ]; then
         log_info "安装依赖: $deps_file"
         uv pip install -r "$deps_file"
     fi
-    
+
     # 安装子仓库包
     if [ -d "$submodule_path" ]; then
         log_info "安装子仓库包: $submodule_path"
         uv pip install -e "$submodule_path"
     fi
-    
+
     deactivate
-    
+
     log_success "虚拟环境就绪: $venv_path"
 }
 
 # 确保框架环境就绪
 ensure_framework_ready() {
     local framework="$1"
-    
+
     log_info "检查框架环境: $framework"
-    
+
     # 1. 检查子仓库
     if ! check_submodule "$framework"; then
         log_warn "子仓库不存在，正在初始化..."
@@ -223,7 +223,7 @@ ensure_framework_ready() {
     else
         log_success "子仓库已就绪"
     fi
-    
+
     # 2. 检查虚拟环境
     if ! check_venv "$framework"; then
         log_warn "虚拟环境不存在，正在创建..."
@@ -238,15 +238,15 @@ run_in_venv() {
     local framework="$1"
     shift
     local venv_path="${FRAMEWORK_VENV[$framework]}"
-    
+
     if [ ! -f "$venv_path/bin/python" ]; then
         log_error "虚拟环境不存在: $venv_path"
         exit 1
     fi
-    
+
     # 将项目根目录加入 PYTHONPATH，使 unitrain 包可从源码导入
     export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
-    
+
     # 使用虚拟环境的 Python 运行
     "$venv_path/bin/python" "$@"
 }
@@ -257,7 +257,7 @@ run_in_venv() {
 
 cmd_setup() {
     local framework=""
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --framework|-f)
@@ -269,16 +269,16 @@ cmd_setup() {
                 ;;
         esac
     done
-    
+
     check_uv
-    
+
     if [ -n "$framework" ]; then
         ensure_framework_ready "$framework"
     else
         log_info "初始化所有框架环境..."
         ensure_framework_ready "rfdetr"
         ensure_framework_ready "ultralytics"
-        
+
         # 创建主项目环境
         if [ ! -d ".venv" ]; then
             log_info "创建主项目环境..."
@@ -289,7 +289,7 @@ cmd_setup() {
             log_success "主项目环境就绪"
         fi
     fi
-    
+
     echo ""
     log_success "环境初始化完成！"
 }
@@ -297,7 +297,7 @@ cmd_setup() {
 cmd_train() {
     local config=""
     local extra_args=()
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --config|-c)
@@ -321,17 +321,17 @@ cmd_train() {
                 ;;
         esac
     done
-    
+
     if [ -z "$config" ]; then
         log_error "请指定配置文件: --config <yaml>"
         exit 1
     fi
-    
+
     local framework=$(get_framework_from_config "$config")
     log_info "框架: $framework"
-    
+
     ensure_framework_ready "$framework"
-    
+
     log_info "开始训练..."
     run_in_venv "$framework" cli/train.py --config "$config" "${extra_args[@]}"
 }
@@ -339,7 +339,7 @@ cmd_train() {
 cmd_predict() {
     local config=""
     local source=""
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --config|-c)
@@ -355,22 +355,22 @@ cmd_predict() {
                 ;;
         esac
     done
-    
+
     if [ -z "$config" ]; then
         log_error "请指定配置文件: --config <yaml>"
         exit 1
     fi
-    
+
     if [ -z "$source" ]; then
         log_error "请指定输入源: --source <path>"
         exit 1
     fi
-    
+
     local framework=$(get_framework_from_config "$config")
     log_info "框架: $framework"
-    
+
     ensure_framework_ready "$framework"
-    
+
     log_info "开始推理..."
     run_in_venv "$framework" cli/predict.py --config "$config" --source "$source"
 }
@@ -378,7 +378,7 @@ cmd_predict() {
 cmd_export() {
     local config=""
     local format="onnx"
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --config|-c)
@@ -394,17 +394,17 @@ cmd_export() {
                 ;;
         esac
     done
-    
+
     if [ -z "$config" ]; then
         log_error "请指定配置文件: --config <yaml>"
         exit 1
     fi
-    
+
     local framework=$(get_framework_from_config "$config")
     log_info "框架: $framework"
-    
+
     ensure_framework_ready "$framework"
-    
+
     log_info "导出模型..."
     run_in_venv "$framework" cli/export.py --config "$config" --format "$format"
 }
@@ -414,7 +414,7 @@ cmd_eval() {
     local weights=""
     local split=""
     local output_dir=""
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --config|-c)
@@ -438,17 +438,17 @@ cmd_eval() {
                 ;;
         esac
     done
-    
+
     if [ -z "$config" ]; then
         log_error "请指定配置文件: --config <yaml>"
         exit 1
     fi
-    
+
     local framework=$(get_framework_from_config "$config")
     log_info "框架: $framework"
-    
+
     ensure_framework_ready "$framework"
-    
+
     log_info "开始评估..."
     local eval_args=(cli/eval.py --config "$config")
     [ -n "$weights" ] && eval_args+=(--weights "$weights")
@@ -459,7 +459,7 @@ cmd_eval() {
 
 cmd_shell() {
     local framework=""
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --framework|-f)
@@ -471,19 +471,19 @@ cmd_shell() {
                 ;;
         esac
     done
-    
+
     if [ -z "$framework" ]; then
         log_error "请指定框架: --framework <rfdetr|yolo>"
         exit 1
     fi
-    
+
     ensure_framework_ready "$framework"
-    
+
     local venv_path="${FRAMEWORK_VENV[$framework]}"
     log_info "进入 $framework 虚拟环境..."
     log_info "退出请输入 'exit' 或按 Ctrl+D"
     echo ""
-    
+
     # 启动子 shell 并激活虚拟环境
     bash --rcfile <(echo "source $venv_path/bin/activate; PS1='($framework) \w\$ '")
 }
@@ -491,7 +491,7 @@ cmd_shell() {
 show_help() {
     echo "UniTrain - 通用模型训练框架"
     echo ""
-    echo "用法: ./run.sh <command> [options]"
+    echo "用法: ./run_unitrain.sh <command> [options]"
     echo ""
     echo "命令:"
     echo "  setup    [--framework <name>]              初始化环境"
@@ -512,11 +512,11 @@ show_help() {
     echo "  --output-dir <dir> 评估结果输出目录"
     echo ""
     echo "示例:"
-    echo "  ./run.sh setup                             # 初始化所有环境"
-    echo "  ./run.sh setup --framework rfdetr          # 仅初始化 RF-DETR"
-    echo "  ./run.sh train --config configs/rfdetr.yaml"
-    echo "  ./run.sh eval --config configs/rfdetr.yaml --weights outputs/.../best.pth"
-    echo "  ./run.sh shell --framework yolo            # 进入 YOLO 环境"
+    echo "  ./run_unitrain.sh setup                             # 初始化所有环境"
+    echo "  ./run_unitrain.sh setup --framework rfdetr          # 仅初始化 RF-DETR"
+    echo "  ./run_unitrain.sh train --config configs/rfdetr.yaml"
+    echo "  ./run_unitrain.sh eval --config configs/rfdetr.yaml --weights outputs/.../best.pth"
+    echo "  ./run_unitrain.sh shell --framework yolo            # 进入 YOLO 环境"
 }
 
 # ============================================================================

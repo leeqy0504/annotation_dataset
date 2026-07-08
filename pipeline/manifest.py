@@ -46,6 +46,7 @@ class Manifest:
             self.stages[name]["metadata"] = copy.deepcopy(metadata)
 
     def mark_stage_failed(self, name: str):
+        self.metadata.pop(name, None)
         self.stages[name] = {
             "status": "failed",
             "output_dir": None,

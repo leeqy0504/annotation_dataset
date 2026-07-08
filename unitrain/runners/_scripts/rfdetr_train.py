@@ -47,7 +47,7 @@ def _patched_load_state_dict(self, state_dict, strict=True, assign=False):
     """
     is_ddp_model = isinstance(self, torch.nn.parallel.DistributedDataParallel)
     state_dict_has_module_prefix = any(k.startswith("module.") for k in state_dict.keys())
-    
+
     # 如果前缀不匹配，进行转换
     if is_ddp_model and not state_dict_has_module_prefix:
         # 模型是 DDP，但 state_dict 没有 module. 前缀 → 添加前缀
@@ -55,7 +55,7 @@ def _patched_load_state_dict(self, state_dict, strict=True, assign=False):
     elif not is_ddp_model and state_dict_has_module_prefix:
         # 模型不是 DDP，但 state_dict 有 module. 前缀 → 移除前缀
         state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
-    
+
     return _original_load_state_dict(self, state_dict, strict=strict, assign=assign)
 
 nn.Module.load_state_dict = _patched_load_state_dict

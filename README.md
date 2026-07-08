@@ -230,6 +230,8 @@ output_dir: output/
 
 注意：`model_train` 会调用 UniTrain runner，训练阶段需要提前准备匹配的框架依赖和可用设备/GPU；依赖或设备缺失会在训练阶段失败。
 
+注意：pipeline 的 `model_train` 在 MVP 阶段目前仅支持 RF-DETR。独立 UniTrain 仍可能包含 YOLO/Ultralytics 工具，但 pipeline 内的 YOLO/Ultralytics 训练还需要后续补齐数据集转换桥接。
+
 ```bash
 python -m pipeline.cli run --config tasks/mouse_001/task.yaml --force
 ```

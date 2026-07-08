@@ -25,7 +25,7 @@ class UnifiedConfig:
     imgsz: int = 640
     batch: int = 16
     device: int | str = 0
-    
+
     # RF-DETR specific training settings
     lr: float = 1e-4
     grad_accum_steps: int = 4
@@ -118,7 +118,7 @@ class UnifiedConfig:
 
 def load_config(config_path: str | Path) -> UnifiedConfig:
     """Load config from YAML file.
-    
+
     Supports two formats:
     1. Nested format: data.path, train.epochs, etc.
     2. Flat format: dataset_dir, epochs, batch_size, etc. (RF-DETR style)
@@ -129,18 +129,18 @@ def load_config(config_path: str | Path) -> UnifiedConfig:
     # Support both nested and flat formats
     train_cfg = data.get("train", {})
     predict_cfg = data.get("predict", {})
-    
+
     # Flat format support (RF-DETR style config)
     data_path = (
-        data.get("dataset_dir") or 
-        data.get("data", {}).get("path") or 
+        data.get("dataset_dir") or
+        data.get("data", {}).get("path") or
         "data/"
     )
-    
+
     # Expand ~ in path if present
     if data_path.startswith("~"):
         data_path = str(Path(data_path).expanduser())
-    
+
     return UnifiedConfig(
         framework=data.get("framework", "ultralytics"),
         model=data.get("model", "yolo11n"),

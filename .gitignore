@@ -21,6 +21,7 @@ Thumbs.db
 
 # Pipeline outputs
 output/
+outputs/
 
 # Task data (large binary files)
 tasks/
