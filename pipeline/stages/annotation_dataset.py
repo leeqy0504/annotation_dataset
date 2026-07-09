@@ -1,5 +1,6 @@
-"""Annotation dataset stages: QA, review pack, and YOLO export."""
+"""Annotation dataset stages: QA, review pack, and COCO export."""
 
+import base64
 import html
 import json
 import shutil
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pipeline.config import PipelineConfig
+from pipeline.input_source import rgb_frame_dir
 from pipeline.manifest import load_manifest_for_config
 from pipeline.stages import register_stage
 from pipeline.stages.base import BaseStage, StageError
@@ -298,6 +300,17 @@ def _state_from_review(row: dict, review_frames: dict) -> str:
     return review_frames.get(row["frame"], {}).get("state", row["state"])
 
 
+def _svg_image_href(image_rel: str, output_path: Path) -> str:
+    candidate = Path(image_rel)
+    if not candidate.is_absolute():
+        candidate = output_path.parent / candidate
+    if not candidate.exists():
+        return image_rel
+    mime = "image/jpeg" if candidate.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+    encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def _draw_box_svg(
     image_rel: str,
     output_path: Path,
@@ -316,9 +329,9 @@ def _draw_box_svg(
     }.get(state, "#00d4aa")
     stroke_width = max(2, int(max(width, height) / 320))
     text = html.escape(label)
-    image_rel = html.escape(image_rel, quote=True)
+    image_href = html.escape(_svg_image_href(image_rel, output_path), quote=True)
     output_path.write_text(f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">
-  <image href="{image_rel}" x="0" y="0" width="{width}" height="{height}" preserveAspectRatio="xMidYMid meet"/>
+  <image href="{image_href}" x="0" y="0" width="{width}" height="{height}" preserveAspectRatio="xMidYMid meet"/>
   <rect x="{x1}" y="{y1}" width="{max(1, x2 - x1)}" height="{max(1, y2 - y1)}" fill="none" stroke="{color}" stroke-width="{stroke_width}"/>
   <rect x="{x1}" y="{max(0, y1 - 18)}" width="{max(80, len(text) * 7 + 12)}" height="18" fill="{color}"/>
   <text x="{x1 + 4}" y="{max(12, y1 - 5)}" fill="#ffffff" font-size="12" font-family="monospace">{text}</text>
@@ -491,10 +504,10 @@ class ReviewPackStage(BaseStage):
         report_path = mask_qa_dir / "qa_report.json"
         self.check_input_path(str(report_path), "Mask QA report")
         report = json.loads(report_path.read_text(encoding="utf-8"))
-        task_dir = Path(config.input.rgbd_dir)
-        rgb_dir = task_dir / "rgb"
+        rgb_dir = rgb_frame_dir(config)
         masks_source = Path(report["source_masks"])
-        export_dir = output_dir.parent / "detection_dataset_export"
+        preview_out = output_dir / "preview"
+        preview_out.mkdir(exist_ok=True)
         split_by_frame = _split_by_clips(
             report["frames"],
             config.detection_dataset.clip_size,
@@ -505,16 +518,24 @@ class ReviewPackStage(BaseStage):
             split_name = split_by_frame.get(row["frame"], "train")
             image_path = rgb_dir / row["frame"]
             mask_path = masks_source / row["frame"]
-            export_image = export_dir / split_name / row["frame"]
-            export_mask = export_dir / "masks" / row["frame"]
-            export_preview = export_dir / "preview" / f"{Path(row['frame']).stem}.svg"
+            preview_path = preview_out / f"{Path(row['frame']).stem}.svg"
+            if row.get("bbox_xyxy") and image_path.exists():
+                _draw_box_svg(
+                    image_rel=_relpath(preview_path.parent, image_path),
+                    output_path=preview_path,
+                    box=row["bbox_xyxy"],
+                    width=int(row["width"]),
+                    height=int(row["height"]),
+                    label=f"{config.detection_dataset.class_name} {row['frame']}",
+                    state=row["state"],
+                )
             item = {
                 **row,
                 "image": str(image_path) if image_path.exists() else None,
                 "mask": str(mask_path) if mask_path.exists() else None,
-                "image_rel": _relpath(output_dir, export_image) if row.get("bbox_xyxy") else (_relpath(output_dir, image_path) if image_path.exists() else None),
-                "mask_rel": _relpath(output_dir, export_mask) if row.get("bbox_xyxy") else (_relpath(output_dir, mask_path) if mask_path.exists() else None),
-                "preview_rel": _relpath(output_dir, export_preview) if row.get("bbox_xyxy") else None,
+                "image_rel": _relpath(output_dir, image_path) if image_path.exists() else None,
+                "mask_rel": _relpath(output_dir, mask_path) if mask_path.exists() else None,
+                "preview_rel": _relpath(output_dir, preview_path) if preview_path.exists() else None,
                 "image_fallback_rel": _relpath(output_dir, image_path) if image_path.exists() else None,
                 "mask_fallback_rel": _relpath(output_dir, mask_path) if mask_path.exists() else None,
             }
@@ -641,7 +662,7 @@ class DetectionDatasetExportStage(BaseStage):
         report = json.loads(report_path.read_text(encoding="utf-8"))
         review = _read_review_status(mask_qa_dir)
         review_frames = review.get("frames", {})
-        rgb_dir = Path(config.input.rgbd_dir) / "rgb"
+        rgb_dir = rgb_frame_dir(config)
         masks_dir = Path(report["source_masks"])
         split_names = ("train", "valid")
         split_dirs = {name: output_dir / name for name in split_names}

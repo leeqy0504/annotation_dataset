@@ -7,6 +7,7 @@ from pathlib import Path
 from shlex import quote
 
 from pipeline.config import PipelineConfig
+from pipeline.input_source import dataset_info_candidates, input_root, rgb_frame_files
 from pipeline.stages import register_stage
 from pipeline.stages.base import BaseStage, StageError
 from pipeline.stages.context import StageContext
@@ -22,13 +23,13 @@ class Sam2MaskStage(BaseStage):
             context: StageContext | None = None) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        rgbd_dir = Path(config.input.rgbd_dir)
-        self.check_input_path(str(rgbd_dir), "RGB-D directory")
+        task_dir = input_root(config)
+        self.check_input_path(str(task_dir), "input source directory")
 
         rgb_src = ensure_rgb_frames(config)
         self.check_input_path(str(rgb_src), "RGB source directory")
 
-        rgb_files = sorted(rgb_src.glob("*.png"))
+        rgb_files = rgb_frame_files(config)
         if not rgb_files:
             raise StageError(f"No RGB images found in {rgb_src}")
 
@@ -39,9 +40,8 @@ class Sam2MaskStage(BaseStage):
         points = config.sam2.points
         labels = config.sam2.labels
 
-        ds_candidates = [rgbd_dir / "dataset_info.json"]
         dataset_info_path = None
-        for p in ds_candidates:
+        for p in dataset_info_candidates(config):
             if p.exists():
                 dataset_info_path = p
                 break

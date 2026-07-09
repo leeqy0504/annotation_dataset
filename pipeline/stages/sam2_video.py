@@ -7,25 +7,32 @@ from pathlib import Path
 from shlex import quote
 
 from pipeline.config import PipelineConfig
+from pipeline.input_source import (
+    dataset_info_candidates,
+    discover_video_source,
+    next_frame_number,
+    rgb_frame_dir,
+    rgb_frame_files,
+)
 from pipeline.stages import register_stage
 from pipeline.stages.base import BaseStage, StageError
 from pipeline.stages.context import StageContext
 
 
 def _resolve_points(config: PipelineConfig) -> tuple[list[list[int]], list[int]]:
-    rgbd_dir = Path(config.input.rgbd_dir)
-    info_path = rgbd_dir / "dataset_info.json"
     points = config.sam2.points
     labels = config.sam2.labels
-    if info_path.exists():
-        with open(info_path) as f:
-            info = json.load(f)
-        sam2_points = info.get("sam2_points", {})
-        pts = sam2_points.get("points", [])
-        lbls = sam2_points.get("labels", [])
-        if pts and lbls and len(pts) == len(lbls):
-            points = pts
-            labels = lbls
+    for info_path in dataset_info_candidates(config):
+        if info_path.exists():
+            with open(info_path) as f:
+                info = json.load(f)
+            sam2_points = info.get("sam2_points", {})
+            pts = sam2_points.get("points", [])
+            lbls = sam2_points.get("labels", [])
+            if pts and lbls and len(pts) == len(lbls):
+                points = pts
+                labels = lbls
+            break
     if not points or not labels or len(points) != len(labels):
         raise StageError("SAM2 points/labels are required for video propagation")
     return points, labels
@@ -41,26 +48,28 @@ def _labels_arg(labels: list[int]) -> str:
 
 def ensure_rgb_frames(config: PipelineConfig) -> Path:
     """Return the RGB frame directory, extracting it from video input if needed."""
-    rgbd_dir = Path(config.input.rgbd_dir)
-    rgb_dir = rgbd_dir / "rgb"
-    frames = sorted(rgb_dir.glob("*.png")) if rgb_dir.exists() else []
-    video_path = getattr(config.input, "video_path", None)
-    if frames:
+    rgb_dir = rgb_frame_dir(config)
+    frames = rgb_frame_files(config)
+    video_source = discover_video_source(config)
+    if not video_source:
         return rgb_dir
-    if not video_path:
+    if frames and not getattr(config.input, "source", None):
         return rgb_dir
 
-    source = Path(video_path)
+    source = Path(video_source)
     if not source.exists():
         raise StageError(f"Video input not found: {source}")
 
     rgb_dir.mkdir(parents=True, exist_ok=True)
     interval = max(1, int(getattr(config.input, "frame_interval", 1) or 1))
+    start_number = next_frame_number(frames)
     frame_pattern = rgb_dir / "%06d.png"
     cmd = ["ffmpeg", "-y", "-i", str(source)]
     if interval > 1:
         cmd.extend(["-vf", f"select=not(mod(n\\,{interval}))"])
         cmd.extend(["-vsync", "vfr"])
+    if start_number > 0:
+        cmd.extend(["-start_number", str(start_number)])
     cmd.append(str(frame_pattern))
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -69,7 +78,7 @@ def ensure_rgb_frames(config: PipelineConfig) -> Path:
             f"Video frame extraction failed (exit {result.returncode}):\n"
             f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
         )
-    frames = sorted(rgb_dir.glob("*.png"))
+    frames = rgb_frame_files(config)
     if not frames:
         raise StageError(f"Video extraction completed but no PNG frames found in {rgb_dir}")
     return rgb_dir
@@ -97,7 +106,7 @@ class Sam2VideoPropagationStage(BaseStage):
 
         rgb_dir = ensure_rgb_frames(config)
         self.check_input_path(str(rgb_dir), "RGB sequence directory")
-        frames = sorted(rgb_dir.glob("*.png"))
+        frames = rgb_frame_files(config)
         if not frames:
             raise StageError(f"No PNG frames found in {rgb_dir}")
         if config.input.first_frame >= len(frames):

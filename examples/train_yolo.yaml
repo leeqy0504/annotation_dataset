@@ -1,0 +1,14 @@
+framework: ultralytics
+model: yolo11n-seg
+task: segment
+data:
+  path: ./output/mouse_001/detection_dataset_export
+  format: coco
+train:
+  epochs: 20
+  imgsz: 640
+  batch: 4
+  device: 0
+  output_dir: ./output/mouse_001/unitrain_yolo
+export:
+  format: onnx

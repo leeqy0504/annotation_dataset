@@ -52,10 +52,36 @@ output_dir: output/
     assert config.input.video_path == "./tasks/mouse_001/source.mp4"
     assert config.input.frame_interval == 2
     assert config.sam2.container == "sam2-backend-1"
-    assert config.sam2.project_mount == "/home/try/code/annotation_dataset"
+    assert config.sam2.project_mount == "/home/try/code/perception-platform"
     assert config.detection_dataset.class_name == "object"
     assert config.detection_dataset.clip_size == 500
     assert config.detection_dataset.train_ratio == 0.8
+
+
+def test_layered_config_accepts_source_without_rgbd_dir(tmp_path):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.yaml").write_text(
+        """
+task_id: mouse_001
+pipeline: annotation_dataset
+runtime: server
+class_id: 0
+input:
+  source: ./tasks/mouse_001/
+  first_frame: 0
+sam2:
+  points: [[10, 20]]
+  labels: [1]
+output_dir: output/
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(task_dir / "task.yaml"), project_root=ROOT)
+
+    assert config.input.source == "./tasks/mouse_001/"
+    assert config.input.rgbd_dir == "./tasks/mouse_001/"
 
 
 def test_pipeline_runtime_stages_are_registered():
@@ -169,9 +195,44 @@ def test_setup_command_writes_annotation_dataset_task_without_multiviews(tmp_pat
 
     task_yaml = (task_dir / "task.yaml").read_text(encoding="utf-8")
     assert "pipeline: annotation_dataset" in task_yaml
-    assert "rgbd_dir: ./tasks/mouse_001/" in task_yaml
+    assert "source: ./tasks/mouse_001/" in task_yaml
+    assert "rgbd_dir" not in task_yaml
     assert "multi_views_dir" not in task_yaml
     assert "real_size" not in task_yaml
+
+
+def test_project_identity_uses_perception_platform_name():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'name = "perception-platform"' in pyproject
+    assert 'perception-platform = "pipeline.cli:main"' in pyproject
+
+
+def test_example_yaml_files_cover_common_workflows():
+    expected = {
+        "dataset_only.yaml",
+        "train_yolo.yaml",
+        "end_to_end_yolo.yaml",
+        "end_to_end_rfdetr.yaml",
+        "mixed_images_and_video.yaml",
+    }
+    example_dir = ROOT / "examples"
+
+    assert expected <= {path.name for path in example_dir.glob("*.yaml")}
+
+    dataset_only = yaml.safe_load((example_dir / "dataset_only.yaml").read_text(encoding="utf-8"))
+    train_yolo = yaml.safe_load((example_dir / "train_yolo.yaml").read_text(encoding="utf-8"))
+    end_to_end_yolo = yaml.safe_load((example_dir / "end_to_end_yolo.yaml").read_text(encoding="utf-8"))
+    mixed = yaml.safe_load((example_dir / "mixed_images_and_video.yaml").read_text(encoding="utf-8"))
+
+    assert dataset_only["pipeline"] == "annotation_dataset"
+    assert dataset_only["input"]["source"] == "./tasks/mouse_001/"
+    assert train_yolo["framework"] == "ultralytics"
+    assert train_yolo["data"]["format"] == "coco"
+    assert end_to_end_yolo["pipeline"] == "annotation_to_unitrain"
+    assert end_to_end_yolo["training"] == "yolo11n_seg"
+    assert mixed["input"]["source"] == "./tasks/videotest/"
+    assert mixed["input"]["video_path"] == "./tasks/videotest/source.mp4"
 
 
 def test_annotation_to_unitrain_config_loads_training_preset_and_overrides(tmp_path):

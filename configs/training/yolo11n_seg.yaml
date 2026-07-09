@@ -1,0 +1,13 @@
+framework: ultralytics
+model: yolo11n-seg
+task: segment
+data:
+  format: coco
+train:
+  epochs: 100
+  imgsz: 640
+  batch: 8
+  device: 0
+  output_dir: outputs
+export:
+  format: onnx

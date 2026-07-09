@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.config import PipelineConfig, InputConfig, Sam2Config
-from pipeline.stages.annotation_dataset import DetectionDatasetExportStage, _write_json
+from pipeline.stages.annotation_dataset import DetectionDatasetExportStage, ReviewPackStage, _write_json
 from pipeline.stages.context import DataContext, RunContext, StageContext
 from pipeline.stages.sam2_video import ensure_rgb_frames
 
@@ -224,3 +224,177 @@ def test_video_input_extracts_rgb_frames_with_ffmpeg(tmp_path):
     assert rgb_dir == task_dir / "rgb"
     assert (rgb_dir / "000000.png").exists()
     assert run.call_count == 1
+
+
+def test_source_directory_uses_pngs_without_rgb_subdirectory(tmp_path):
+    source_dir = tmp_path / "videotest"
+    frame_name = "000000.png"
+    _write_png(source_dir / frame_name)
+    config = PipelineConfig(
+        task="videotest",
+        preset="annotation_dataset",
+        input=InputConfig(source=str(source_dir)),
+        sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
+    )
+
+    rgb_dir = ensure_rgb_frames(config)
+
+    assert rgb_dir == source_dir
+    assert (rgb_dir / frame_name).exists()
+
+
+def test_source_directory_extracts_video_after_existing_pngs(tmp_path):
+    source_dir = tmp_path / "videotest"
+    _write_png(source_dir / "000000.png")
+    video_path = source_dir / "source.mp4"
+    video_path.write_bytes(b"fake")
+    config = PipelineConfig(
+        task="videotest",
+        preset="annotation_dataset",
+        input=InputConfig(source=str(source_dir), frame_interval=2),
+        sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
+    )
+
+    def fake_run(cmd, capture_output, text):
+        assert cmd[:4] == ["ffmpeg", "-y", "-i", str(video_path)]
+        assert "-start_number" in cmd
+        assert cmd[cmd.index("-start_number") + 1] == "1"
+        assert "select=not(mod(n\\,2))" in cmd
+        assert str(source_dir / "%06d.png") in cmd
+        _write_png(source_dir / "000001.png")
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    with patch("pipeline.stages.sam2_video.subprocess.run", side_effect=fake_run) as run:
+        rgb_dir = ensure_rgb_frames(config)
+
+    assert rgb_dir == source_dir
+    assert [path.name for path in sorted(rgb_dir.glob("*.png"))] == ["000000.png", "000001.png"]
+    assert run.call_count == 1
+
+
+def test_source_directory_auto_discovers_video_when_no_pngs(tmp_path):
+    source_dir = tmp_path / "videotest"
+    source_dir.mkdir()
+    (source_dir / "notes.txt").write_text("not an image", encoding="utf-8")
+    video_path = source_dir / "source.mp4"
+    video_path.write_bytes(b"fake")
+    config = PipelineConfig(
+        task="videotest",
+        preset="annotation_dataset",
+        input=InputConfig(source=str(source_dir), frame_interval=1),
+        sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
+    )
+
+    def fake_run(cmd, capture_output, text):
+        assert cmd[:4] == ["ffmpeg", "-y", "-i", str(video_path)]
+        assert str(source_dir / "%06d.png") in cmd
+        _write_png(source_dir / "000000.png")
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    with patch("pipeline.stages.sam2_video.subprocess.run", side_effect=fake_run) as run:
+        rgb_dir = ensure_rgb_frames(config)
+
+    assert rgb_dir == source_dir
+    assert (source_dir / "000000.png").exists()
+    assert run.call_count == 1
+
+
+def test_detection_dataset_export_reads_direct_source_directory_images(tmp_path):
+    source_dir = tmp_path / "videotest"
+    masks_dir = tmp_path / "sam2" / "masks"
+    mask_qa_dir = tmp_path / "mask_qa"
+    output_dir = tmp_path / "export"
+    frame_name = "000000.png"
+    _write_png(source_dir / frame_name)
+    _write_png(masks_dir / frame_name)
+    mask_qa_dir.mkdir(parents=True)
+    _write_json(mask_qa_dir / "qa_report.json", {
+        "task": "videotest",
+        "source_masks": str(masks_dir),
+        "frames": [{
+            "frame": frame_name,
+            "width": 4,
+            "height": 3,
+            "area": 4,
+            "bbox_xyxy": [1, 0, 3, 2],
+            "state": "accepted",
+            "flags": [],
+        }],
+    })
+    config = PipelineConfig(
+        task="videotest",
+        preset="annotation_dataset",
+        input=InputConfig(source=str(source_dir)),
+        sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
+    )
+
+    DetectionDatasetExportStage().run(
+        config,
+        output_dir,
+        context=_context_for(mask_qa_dir, output_dir),
+    )
+
+    assert (output_dir / "train" / frame_name).exists()
+    preview = (output_dir / "preview" / "000000.svg").read_text(encoding="utf-8")
+    assert "data:image/png;base64," in preview
+
+
+def test_review_pack_preview_overlays_rgb_background_before_export_stage(tmp_path):
+    source_dir = tmp_path / "videotest"
+    masks_dir = tmp_path / "sam2" / "masks"
+    mask_qa_dir = tmp_path / "mask_qa"
+    output_dir = tmp_path / "review_pack"
+    frame_name = "000000.png"
+    _write_png(source_dir / frame_name)
+    _write_png(masks_dir / frame_name)
+    mask_qa_dir.mkdir(parents=True)
+    _write_json(mask_qa_dir / "qa_report.json", {
+        "task": "videotest",
+        "source_masks": str(masks_dir),
+        "summary": {"total": 1, "accepted": 1, "suspect": 0, "rejected": 0},
+        "frames": [{
+            "frame": frame_name,
+            "width": 4,
+            "height": 3,
+            "area": 4,
+            "bbox_xyxy": [1, 0, 3, 2],
+            "state": "accepted",
+            "flags": [],
+        }],
+    })
+    config = PipelineConfig(
+        task="videotest",
+        preset="annotation_dataset",
+        input=InputConfig(source=str(source_dir)),
+        sam2=Sam2Config(container="sam2-backend-1", points=[[1, 1]], labels=[1]),
+    )
+    context = StageContext(
+        run=RunContext(run_id=None, task_name="videotest"),
+        data=DataContext(
+            task_dir=source_dir,
+            run_dir=tmp_path,
+            output_dir=output_dir,
+            inputs={"mask_qa": mask_qa_dir},
+        ),
+        stage_name="review_pack",
+    )
+
+    ReviewPackStage().run(config, output_dir, context=context)
+
+    preview_path = output_dir / "preview" / "000000.svg"
+    html = (output_dir / "index.html").read_text(encoding="utf-8")
+    preview = preview_path.read_text(encoding="utf-8")
+    assert 'src="preview/000000.svg"' in html
+    assert "data:image/png;base64," in preview

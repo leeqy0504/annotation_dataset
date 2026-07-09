@@ -17,7 +17,8 @@ class ConfigError(Exception):
 
 @dataclass
 class InputConfig:
-    rgbd_dir: str
+    rgbd_dir: str | None = None
+    source: str | None = None
     first_frame: int = 0
     video_path: str | None = None
     frame_interval: int = 1
@@ -28,7 +29,7 @@ class Sam2Config:
     container: str
     checkpoint: str = "/opt/sam2/checkpoints/sam2.1_hiera_base_plus.pt"
     config_file: str = "configs/sam2.1/sam2.1_hiera_b+.yaml"
-    project_mount: str = "/home/try/code/fp-pipeline-tool"
+    project_mount: str = "/home/try/code/perception-platform"
     pic_cli: str = "tools/sam2/sam2_pic_cli.py"
     video_cli: str = "tools/sam2/sam2_video_cli.py"
     points: list[list[int]] = field(default_factory=list)
@@ -213,7 +214,7 @@ def _load_layered_config(path: Path, project_root: Path, raw: dict) -> dict:
 
 
 _REQUIRED_TOP = ["task", "preset", "input", "sam2"]
-_REQUIRED_INPUT = ["rgbd_dir"]
+_REQUIRED_INPUT = []
 _REQUIRED_SAM2 = ["container", "points", "labels"]
 
 
@@ -250,21 +251,33 @@ def load_config(config_path: str, project_root: str | Path | None = None) -> Pip
     _validate_section(resolved, "sam2", _REQUIRED_SAM2)
 
     det_data = resolved.get("detection_dataset", {})
+    input_data = resolved["input"]
+    source = input_data.get("source")
+    rgbd_dir = input_data.get("rgbd_dir")
+    video_path = input_data.get("video_path")
+    if not source and not rgbd_dir:
+        if video_path:
+            source = str(Path(video_path).parent)
+        else:
+            raise ConfigError("Missing required field: 'input.source'")
+    if not rgbd_dir:
+        rgbd_dir = source
 
     return PipelineConfig(
         task=resolved["task"],
         preset=resolved["preset"],
         input=InputConfig(
-            rgbd_dir=resolved["input"]["rgbd_dir"],
-            first_frame=resolved["input"].get("first_frame", 0),
-            video_path=resolved["input"].get("video_path"),
-            frame_interval=resolved["input"].get("frame_interval", 1),
+            rgbd_dir=rgbd_dir,
+            source=source,
+            first_frame=input_data.get("first_frame", 0),
+            video_path=video_path,
+            frame_interval=input_data.get("frame_interval", 1),
         ),
         sam2=Sam2Config(
             container=resolved["sam2"]["container"],
             checkpoint=resolved["sam2"].get("checkpoint", "/opt/sam2/checkpoints/sam2.1_hiera_base_plus.pt"),
             config_file=resolved["sam2"].get("config_file", "configs/sam2.1/sam2.1_hiera_b+.yaml"),
-            project_mount=resolved["sam2"].get("project_mount", "/home/try/code/fp-pipeline-tool"),
+            project_mount=resolved["sam2"].get("project_mount", "/home/try/code/perception-platform"),
             pic_cli=resolved["sam2"].get("pic_cli", "tools/sam2/sam2_pic_cli.py"),
             video_cli=resolved["sam2"].get("video_cli", "tools/sam2/sam2_video_cli.py"),
             points=resolved["sam2"]["points"],

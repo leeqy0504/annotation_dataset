@@ -63,7 +63,7 @@ def cmd_setup(args):
         "class_id": int(existing.get("class_id", args.class_id)),
         "input": {
             **existing.get("input", {}),
-            "rgbd_dir": f"./tasks/{task_name}/",
+            "source": f"./tasks/{task_name}/",
             "first_frame": int(existing.get("input", {}).get("first_frame", 0)),
         },
         "sam2": {
@@ -80,7 +80,7 @@ def cmd_setup(args):
     )
 
     print(f"Task config written: {existing_path}")
-    print(f"  rgbd_dir   -> ./tasks/{task_name}/")
+    print(f"  source     -> ./tasks/{task_name}/")
     print(f"  pipeline   -> {data['pipeline']}")
 
 

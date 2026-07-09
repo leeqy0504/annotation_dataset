@@ -288,7 +288,7 @@ def test_model_train_stage_defaults_missing_training_output_dir_to_unitrain(tmp_
     assert runner.config["train"]["output_dir"] == str(default_output_dir)
 
 
-def test_model_train_stage_rejects_unsupported_framework_before_get_runner(tmp_path, monkeypatch):
+def test_model_train_stage_rejects_unknown_framework_before_get_runner(tmp_path, monkeypatch):
     task_dir = tmp_path / "tasks" / "mouse_001"
     dataset_root = tmp_path / "run" / "detection_dataset_export"
     dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
@@ -296,7 +296,7 @@ def test_model_train_stage_rejects_unsupported_framework_before_get_runner(tmp_p
     _write_dataset_manifest(dataset_prepare_dir, dataset_root)
     config = _config(task_dir)
     config.training = {
-        "framework": "ultralytics",
+        "framework": "mmdet",
         "model": "seg-nano",
         "task": "segment",
         "data": {"format": "coco"},
@@ -319,9 +319,70 @@ def test_model_train_stage_rejects_unsupported_framework_before_get_runner(tmp_p
 
     with pytest.raises(
         StageError,
-        match="model_train currently supports framework 'rfdetr' only; 'ultralytics' requires a dataset conversion bridge",
+        match="model_train supports frameworks 'rfdetr' and 'ultralytics'; got 'mmdet'",
     ):
         ModelTrainStage().run(config, output_dir, context=context)
+
+
+def test_model_train_stage_converts_coco_to_yolo_for_ultralytics(tmp_path, monkeypatch):
+    task_dir = tmp_path / "tasks" / "mouse_001"
+    dataset_root = tmp_path / "run" / "detection_dataset_export"
+    dataset_prepare_dir = tmp_path / "run" / "dataset_prepare"
+    output_dir = tmp_path / "run" / "model_train"
+    _write_dataset_manifest(dataset_prepare_dir, dataset_root)
+    config = _config(task_dir)
+    config.training_name = "yolo11n_seg"
+    config.training = {
+        "framework": "ultralytics",
+        "model": "yolo11n-seg",
+        "task": "segment",
+        "data": {"format": "coco"},
+        "train": {"epochs": 1, "batch": 1, "device": "cpu"},
+    }
+    context = StageContext(
+        run=RunContext(run_id="run42", task_name="mouse_001", metadata={}),
+        data=DataContext(
+            task_dir=task_dir,
+            run_dir=tmp_path / "run",
+            output_dir=output_dir,
+            inputs={"dataset_prepare": dataset_prepare_dir},
+        ),
+        stage_name="model_train",
+    )
+    converted = []
+
+    def fake_convert(coco_root, yolo_root, task="detect", framework="yolo"):
+        converted.append({
+            "coco_root": Path(coco_root),
+            "yolo_root": Path(yolo_root),
+            "task": task,
+            "framework": framework,
+        })
+        Path(yolo_root).mkdir(parents=True)
+        (Path(yolo_root) / "data.yaml").write_text("path: .\ntrain: images/train\nval: images/val\n", encoding="utf-8")
+        return {"nc": 1, "names": ["object"]}
+
+    runner = FakeRunner()
+    monkeypatch.setattr("pipeline.stages.training.convert_coco_dataset", fake_convert, raising=False)
+    monkeypatch.setattr("pipeline.stages.training.get_runner", lambda framework: runner)
+
+    ModelTrainStage().run(config, output_dir, context=context)
+
+    yolo_root = output_dir / "dataset_yolo"
+    assert converted == [{
+        "coco_root": dataset_root,
+        "yolo_root": yolo_root,
+        "task": "segment",
+        "framework": "ultralytics",
+    }]
+    assert runner.config["data"]["path"] == str(yolo_root)
+    assert runner.config["data"]["format"] == "yolo"
+    assert runner.config["data_yaml"] == str(yolo_root / "data.yaml")
+    assert runner.config["data"]["nc"] == 1
+    assert runner.config["data"]["names"] == ["object"]
+    resolved = yaml.safe_load((output_dir / "resolved_unitrain_config.yaml").read_text(encoding="utf-8"))
+    assert resolved["data"]["path"] == str(yolo_root)
+    assert resolved["data"]["format"] == "yolo"
 
 
 def test_model_train_stage_rejects_non_mapping_data_config(tmp_path):

@@ -15,6 +15,13 @@ from pipeline.stages.context import StageContext
 from unitrain import get_runner
 
 
+def convert_coco_dataset(*args, **kwargs):
+    """Lazily import the UniTrain converter because it depends on cv2/supervision."""
+    from unitrain.data_converter import convert_coco_dataset as _convert_coco_dataset
+
+    return _convert_coco_dataset(*args, **kwargs)
+
+
 def _stage_input(config: PipelineConfig, context: StageContext | None, stage_name: str) -> Path:
     if context and context.data and context.data.get_input(stage_name):
         return context.input(stage_name)
@@ -55,6 +62,36 @@ def _resolved_training_config(config: PipelineConfig, dataset_manifest: dict, ou
         if not train_output_path.is_absolute():
             train["output_dir"] = str(output_dir / train_output_path)
     return resolved
+
+
+def _prepare_yolo_training_data(resolved_config: dict, dataset_manifest: dict, output_dir: Path) -> None:
+    framework = str(resolved_config.get("framework", "")).lower()
+    if framework not in {"ultralytics", "yolo"}:
+        return
+
+    data = resolved_config.setdefault("data", {})
+    data_format = str(data.get("format", "")).lower()
+    if data_format != "coco":
+        yolo_root = Path(data["path"])
+    else:
+        coco_root = Path(dataset_manifest["root"])
+        yolo_root = output_dir / "dataset_yolo"
+        class_info = convert_coco_dataset(
+            coco_root,
+            yolo_root,
+            task=str(resolved_config.get("task", "detect")),
+            framework=framework,
+        )
+        data["path"] = str(yolo_root)
+        data["format"] = "yolo"
+        if class_info:
+            data["nc"] = class_info.get("nc", data.get("nc"))
+            data["names"] = class_info.get("names", data.get("names", []))
+
+    data_yaml = yolo_root / "data.yaml"
+    if not data_yaml.exists():
+        raise StageError(f"YOLO data.yaml not found after dataset preparation: {data_yaml}")
+    resolved_config["data_yaml"] = str(data_yaml)
 
 
 @register_stage("dataset_prepare")
@@ -105,6 +142,7 @@ class ModelTrainStage(BaseStage):
 
         dataset_manifest = _read_json(dataset_manifest_path)
         resolved_config = _resolved_training_config(config, dataset_manifest, output_dir)
+        _prepare_yolo_training_data(resolved_config, dataset_manifest, output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         resolved_config_path = output_dir / "resolved_unitrain_config.yaml"
         resolved_config_path.write_text(
@@ -116,10 +154,10 @@ class ModelTrainStage(BaseStage):
         if not framework:
             raise StageError("Training config missing required field: framework")
         framework_name = str(framework).lower()
-        if framework_name not in {"rfdetr", "rf-detr"}:
+        if framework_name not in {"rfdetr", "rf-detr", "ultralytics", "yolo"}:
             raise StageError(
-                f"model_train currently supports framework 'rfdetr' only; "
-                f"'{framework}' requires a dataset conversion bridge"
+                f"model_train supports frameworks 'rfdetr' and 'ultralytics'; "
+                f"got '{framework}'"
             )
         try:
             runner = get_runner(framework_name)

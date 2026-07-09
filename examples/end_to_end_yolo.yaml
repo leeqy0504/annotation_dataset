@@ -1,0 +1,29 @@
+task_id: mouse_001
+pipeline: annotation_to_unitrain
+runtime: server
+class_id: 0
+
+input:
+  source: ./tasks/mouse_001/
+  first_frame: 0
+  frame_interval: 1
+
+sam2:
+  points: [[380, 182]]
+  labels: [1]
+
+detection_dataset:
+  class_name: object
+  class_id: 0
+  min_box_area: 16
+  train_ratio: 0.8
+  copy_images: true
+
+training: yolo11n_seg
+training_overrides:
+  train:
+    epochs: 20
+    batch: 4
+    device: 0
+
+output_dir: output/

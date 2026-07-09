@@ -33,10 +33,11 @@ perception-platform/
   tasks/<task_name>/
     task.yaml
     dataset_info.json
-    rgb/*.png
+    *.png
     source.mp4
   tools/sam2/
   run_annotation_dataset.sh
+  examples/
 ```
 
 配置加载器采用分层架构：
@@ -56,9 +57,9 @@ pipeline: annotation_dataset
 runtime: server
 class_id: 0
 input:
-  rgbd_dir: ./tasks/mouse_001/
+  source: ./tasks/mouse_001/
   first_frame: 0
-  # 可选：如果未提供 rgb/*.png，则从视频抽帧生成 RGB 图像序列
+  # 可选：如果目录里有视频，则从视频抽帧并追加到已有 PNG 后面
   video_path: ./tasks/mouse_001/source.mp4
   frame_interval: 1
 sam2:
@@ -72,28 +73,30 @@ detection_dataset:
 output_dir: output/
 ```
 
-方式一：将 RGB 图像放入：
+方式一：将 RGB 图像直接放入任务目录：
 
 ```text
-tasks/<task_name>/rgb/*.png
+tasks/<task_name>/*.png
 ```
 
-方式二：在 `task.yaml` 中配置视频输入：
+方式二：目录中只有视频，或同时有图片和视频：
 
 ```yaml
 input:
-  rgbd_dir: ./tasks/<task_name>/
+  source: ./tasks/<task_name>/
   video_path: ./tasks/<task_name>/source.mp4
   frame_interval: 1
 ```
 
-当 `rgb/` 中还没有 PNG 帧时，流水线会调用 `ffmpeg` 抽帧到：
+当目录中没有 PNG 时，流水线会自动读取 `source` 目录中的视频；如果既有 PNG 又有视频，会调用 `ffmpeg` 把视频帧追加到现有图片序号后：
 
 ```text
-tasks/<task_name>/rgb/%06d.png
+tasks/<task_name>/%06d.png
 ```
 
 `frame_interval` 默认为 `1`，表示每帧都抽；设置为 `5` 表示每 5 帧抽 1 帧。
+
+旧配置中的 `input.rgbd_dir` 仍可读取，兼容历史任务；新任务建议使用 `input.source`。
 
 如果存在 `tasks/<task_name>/dataset_info.json`，并且其中包含：
 
@@ -106,6 +109,12 @@ tasks/<task_name>/rgb/%06d.png
 
 ```bash
 pip install -e .
+perception-platform run --config tasks/mouse_001/task.yaml --force
+```
+
+也可以继续使用兼容脚本：
+
+```bash
 ./run_annotation_dataset.sh --task mouse_001 --force
 ```
 
@@ -209,7 +218,7 @@ pipeline: annotation_to_unitrain
 runtime: server
 class_id: 0
 input:
-  rgbd_dir: ./tasks/mouse_001/
+  source: ./tasks/mouse_001/
   video_path: ./tasks/mouse_001/source.mp4
   frame_interval: 1
 sam2:
@@ -232,7 +241,26 @@ output_dir: output/
 
 注意：`model_train` 会调用 UniTrain runner，训练阶段需要提前准备匹配的框架依赖和可用设备/GPU；依赖或设备缺失会在训练阶段失败。
 
-注意：pipeline 的 `model_train` 在 MVP 阶段目前仅支持 RF-DETR。独立 UniTrain 仍可能包含 YOLO/Ultralytics 工具，但 pipeline 内的 YOLO/Ultralytics 训练还需要后续补齐数据集转换桥接。
+`model_train` 支持 RF-DETR 与 Ultralytics/YOLO。YOLO 训练会先复用 UniTrain 的 COCO→YOLO 转换器，把 `detection_dataset_export/` 转成 `model_train/dataset_yolo/`，再把其中的 `data.yaml` 交给 Ultralytics runner。
+
+端到端 YOLO 配置只需要把 training preset 改成：
+
+```yaml
+training: yolo11n_seg
+training_overrides:
+  train:
+    epochs: 20
+    batch: 4
+    device: 0
+```
+
+更多可直接复制测试的配置在 `examples/`：
+
+* `dataset_only.yaml`：只生成 COCO 数据集。
+* `train_yolo.yaml`：只用 UniTrain/YOLO 训练已有 COCO 数据集。
+* `end_to_end_rfdetr.yaml`：数据集制作到 RF-DETR 训练。
+* `end_to_end_yolo.yaml`：数据集制作到 YOLO 训练。
+* `mixed_images_and_video.yaml`：同一目录下图片与视频混合输入。
 
 ```bash
 python -m pipeline.cli run --config tasks/mouse_001/task.yaml --force

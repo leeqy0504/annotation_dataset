@@ -2,7 +2,7 @@ sam2:
   container: sam2-backend-1
   checkpoint: /opt/sam2/checkpoints/sam2.1_hiera_base_plus.pt
   config_file: configs/sam2.1/sam2.1_hiera_b+.yaml
-  project_mount: /home/try/code/annotation_dataset
+  project_mount: /home/try/code/perception-platform
   pic_cli: tools/sam2/sam2_pic_cli.py
   video_cli: tools/sam2/sam2_video_cli.py
   points: []

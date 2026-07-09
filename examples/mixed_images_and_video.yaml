@@ -1,17 +1,23 @@
-task_id: example_task
+task_id: videotest
 pipeline: annotation_dataset
 runtime: server
 class_id: 0
+
 input:
-  source: ./tasks/example_task/
+  source: ./tasks/videotest/
+  video_path: ./tasks/videotest/source.mp4
   first_frame: 0
-  # video_path: ./tasks/example_task/source.mp4
-  # frame_interval: 1
+  frame_interval: 1
+
 sam2:
   points: [[380, 182]]
   labels: [1]
+
 detection_dataset:
   class_name: object
   class_id: 0
   min_box_area: 16
+  train_ratio: 0.8
+  copy_images: true
+
 output_dir: output/

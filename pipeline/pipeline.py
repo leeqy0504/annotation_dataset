@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from pipeline.config import PipelineConfig
+from pipeline.input_source import input_root
 from pipeline.manifest import Manifest
 from pipeline.stages import get_stage
 
@@ -116,7 +117,7 @@ class PipelineOrchestrator:
             if info.get("status") == "done" and info.get("output_dir")
         }
         run_dir = Path(self._run_dir(config))
-        task_dir = Path(config.input.rgbd_dir)
+        task_dir = input_root(config)
         metadata = manifest.metadata
         run_context = RunContext(
             run_id=config.run_id,
